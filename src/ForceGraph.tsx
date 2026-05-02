@@ -5,6 +5,7 @@ import type { Edge, Node, NodeCategory } from './graphData'
 type GraphProps = {
   nodes: Node[]
   edges: Edge[]
+  onNodeSelect?: (node: Node) => void
 }
 
 type SimNode = Node & d3.SimulationNodeDatum
@@ -64,7 +65,7 @@ const clampTooltip = (event: PointerEvent | MouseEvent) => {
   return { x: Math.max(margin, x), y: Math.max(margin, y) }
 }
 
-export function ForceGraph({ nodes, edges }: GraphProps) {
+export function ForceGraph({ nodes, edges, onNodeSelect }: GraphProps) {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const [tooltip, setTooltip] = useState<Tooltip | null>(null)
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
@@ -214,6 +215,9 @@ export function ForceGraph({ nodes, edges }: GraphProps) {
         setHoveredNodeId(null)
         setTooltip(null)
       })
+      .on('click', (_event, graphNode) => {
+        onNodeSelect?.(graphNode)
+      })
 
     node
       .append('circle')
@@ -264,7 +268,7 @@ export function ForceGraph({ nodes, edges }: GraphProps) {
     return () => {
       simulation.stop()
     }
-  }, [edges, nodes])
+  }, [edges, nodes, onNodeSelect])
 
   useEffect(() => {
     const svgElement = svgRef.current
