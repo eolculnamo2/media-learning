@@ -1,0 +1,246 @@
+export type NodeCategory =
+  | 'concept'
+  | 'progressive-mp4'
+  | 'fragmented-mp4'
+  | 'streaming'
+  | 'box'
+  | 'timing'
+  | 'sample-table'
+
+export type Node = {
+  id: string
+  label: string
+  category: NodeCategory
+  description: string
+  whyItMatters: string
+}
+
+export type Edge = {
+  source: string
+  target: string
+  label: string
+  description: string
+}
+
+export const nodes: Node[] = [
+  {
+    id: 'mp4-file',
+    label: 'MP4 File',
+    category: 'concept',
+    description: 'An ISO Base Media File Format container for timed media such as audio and video.',
+    whyItMatters: 'It is the top-level mental model: bytes are organized into boxes that describe and carry samples.',
+  },
+  {
+    id: 'progressive-mp4',
+    label: 'Progressive MP4',
+    category: 'progressive-mp4',
+    description: 'A self-contained MP4 commonly downloaded or played from a single URL.',
+    whyItMatters: 'Players can start once enough metadata and media bytes are available, especially when moov is near the front.',
+  },
+  {
+    id: 'fragmented-mp4',
+    label: 'Fragmented MP4 / fMP4',
+    category: 'fragmented-mp4',
+    description: 'An MP4 organized as initialization metadata followed by media fragments.',
+    whyItMatters: 'This is the common structure used by modern adaptive streaming pipelines such as DASH and HLS fMP4.',
+  },
+  {
+    id: 'init-segment',
+    label: 'Init Segment',
+    category: 'fragmented-mp4',
+    description: 'The startup segment that carries file type and global track metadata.',
+    whyItMatters: 'A player needs it before decoding media segments because it declares codecs, tracks, and timescales.',
+  },
+  {
+    id: 'media-segment',
+    label: 'Media Segment',
+    category: 'fragmented-mp4',
+    description: 'A streamable chunk containing metadata and media bytes for a time range.',
+    whyItMatters: 'ABR playback fetches media segment by segment, allowing buffering and quality switching.',
+  },
+  {
+    id: 'media-fragment',
+    label: 'Media Fragment',
+    category: 'fragmented-mp4',
+    description: 'The container-level fragment structure, usually represented by moof plus mdat.',
+    whyItMatters: 'It is the ISOBMFF mechanism that makes independent segment metadata possible.',
+  },
+  {
+    id: 'abr',
+    label: 'ABR',
+    category: 'streaming',
+    description: 'Adaptive Bitrate streaming: switching quality levels based on bandwidth and buffer health.',
+    whyItMatters: 'ABR keeps playback smooth while selecting the best sustainable representation.',
+  },
+  {
+    id: 'manifest',
+    label: 'Manifest',
+    category: 'streaming',
+    description: 'A playlist or MPD describing available media, segments, timing, and variants.',
+    whyItMatters: 'The player uses it as the map for choosing init segments, media segments, and representations.',
+  },
+  {
+    id: 'representation',
+    label: 'Representation',
+    category: 'streaming',
+    description: 'One encoded version of the same content, such as a specific bitrate, resolution, or codec.',
+    whyItMatters: 'ABR switches among representations when they are time-aligned and compatible.',
+  },
+  {
+    id: 'ftyp',
+    label: 'ftyp',
+    category: 'box',
+    description: 'File Type Box. Declares brands and compatibility for the file.',
+    whyItMatters: 'It helps demuxers identify the kind of ISOBMFF file and supported feature set.',
+  },
+  {
+    id: 'moov',
+    label: 'moov',
+    category: 'box',
+    description: 'Movie Box. Contains global metadata for the MP4 presentation.',
+    whyItMatters: 'Players use it to understand tracks, timing, codecs, and sample tables.',
+  },
+  {
+    id: 'trak',
+    label: 'trak',
+    category: 'box',
+    description: 'Track Box. Describes one media track, such as video, audio, or subtitles.',
+    whyItMatters: 'Track metadata tells the player how each stream is identified and interpreted.',
+  },
+  {
+    id: 'mdia',
+    label: 'mdia',
+    category: 'box',
+    description: 'Media Box. Contains media-specific information for a track.',
+    whyItMatters: 'It groups timing, handler, and media information needed to decode a track.',
+  },
+  {
+    id: 'minf',
+    label: 'minf',
+    category: 'box',
+    description: 'Media Information Box. Carries media handler-specific information.',
+    whyItMatters: 'It leads to the sample table, where samples are mapped to time and byte locations.',
+  },
+  {
+    id: 'stbl',
+    label: 'stbl',
+    category: 'sample-table',
+    description: 'Sample Table Box. Indexes samples in a progressive MP4 track.',
+    whyItMatters: 'It is the core lookup structure for sample timing, sizes, keyframes, and offsets.',
+  },
+  {
+    id: 'stsd',
+    label: 'stsd',
+    category: 'sample-table',
+    description: 'Sample Description Box. Describes codec configuration and sample entry details.',
+    whyItMatters: 'Decoders need this information to initialize correctly.',
+  },
+  {
+    id: 'stts',
+    label: 'stts',
+    category: 'timing',
+    description: 'Decoding Time to Sample Box. Maps samples to decode durations.',
+    whyItMatters: 'It builds the decode timeline for progressive MP4 playback.',
+  },
+  {
+    id: 'stss',
+    label: 'stss',
+    category: 'sample-table',
+    description: 'Sync Sample Box. Lists random-access samples, usually keyframes.',
+    whyItMatters: 'Seeking and segment boundaries generally need sync samples.',
+  },
+  {
+    id: 'stsz',
+    label: 'stsz',
+    category: 'sample-table',
+    description: 'Sample Size Box. Lists the size of each sample or a constant sample size.',
+    whyItMatters: 'The demuxer uses it to know how many bytes to read for each sample.',
+  },
+  {
+    id: 'stco-co64',
+    label: 'stco/co64',
+    category: 'sample-table',
+    description: 'Chunk Offset Boxes. Point from sample table chunks to byte offsets in mdat.',
+    whyItMatters: 'They connect metadata to the actual media payload locations.',
+  },
+  {
+    id: 'mdat',
+    label: 'mdat',
+    category: 'box',
+    description: 'Media Data Box. Contains encoded audio, video, or subtitle bytes.',
+    whyItMatters: 'This is the payload the decoder ultimately consumes after metadata explains how to parse it.',
+  },
+  {
+    id: 'moof',
+    label: 'moof',
+    category: 'fragmented-mp4',
+    description: 'Movie Fragment Box. Contains metadata for one media fragment.',
+    whyItMatters: 'In fMP4 streaming, each media segment needs moof metadata so the player can interpret the mdat bytes.',
+  },
+  {
+    id: 'traf',
+    label: 'traf',
+    category: 'fragmented-mp4',
+    description: 'Track Fragment Box. Holds fragment metadata for one track.',
+    whyItMatters: 'Fragments can carry multiple tracks, each with its own traf metadata.',
+  },
+  {
+    id: 'tfhd',
+    label: 'tfhd',
+    category: 'fragmented-mp4',
+    description: 'Track Fragment Header Box. Identifies the track and provides defaults.',
+    whyItMatters: 'Default sample values reduce repetition and tell the player which track the fragment belongs to.',
+  },
+  {
+    id: 'tfdt',
+    label: 'tfdt',
+    category: 'timing',
+    description: 'Track Fragment Decode Time Box. Gives the base decode time for the fragment.',
+    whyItMatters: 'It places a fragment on the media timeline for smooth playback and ABR alignment.',
+  },
+  {
+    id: 'trun',
+    label: 'trun',
+    category: 'sample-table',
+    description: 'Track Run Box. Describes samples inside a media fragment.',
+    whyItMatters: 'Acts like a mini sample table for a segment, listing sample sizes, durations, and flags.',
+  },
+]
+
+export const edges: Edge[] = [
+  { source: 'mp4-file', target: 'progressive-mp4', label: 'can be', description: 'An MP4 file can be authored as a progressive MP4 for single-file playback.' },
+  { source: 'mp4-file', target: 'fragmented-mp4', label: 'can be', description: 'An MP4 file can be fragmented for streaming and incremental playback.' },
+  { source: 'progressive-mp4', target: 'ftyp', label: 'contains', description: 'A progressive MP4 contains an ftyp box declaring compatible brands.' },
+  { source: 'progressive-mp4', target: 'moov', label: 'contains', description: 'A progressive MP4 contains a moov box with global metadata and sample tables.' },
+  { source: 'progressive-mp4', target: 'mdat', label: 'contains', description: 'A progressive MP4 contains mdat bytes for the encoded media payload.' },
+  { source: 'fragmented-mp4', target: 'init-segment', label: 'uses', description: 'A fragmented MP4 begins with an init segment that declares the media structure.' },
+  { source: 'fragmented-mp4', target: 'media-segment', label: 'uses', description: 'A fragmented MP4 continues as media segments, each carrying fragment metadata and payload.' },
+  { source: 'init-segment', target: 'ftyp', label: 'contains', description: 'An init segment contains the ftyp box, which identifies compatible ISOBMFF brands.' },
+  { source: 'init-segment', target: 'moov', label: 'contains', description: 'An init segment contains the moov box, which provides global track and codec metadata.' },
+  { source: 'media-segment', target: 'moof', label: 'contains', description: 'A fragmented MP4 media segment contains a moof box describing the samples in that segment.' },
+  { source: 'media-segment', target: 'mdat', label: 'contains', description: 'A fragmented MP4 media segment contains mdat bytes for the samples described by moof.' },
+  { source: 'media-fragment', target: 'media-segment', label: 'behind', description: 'A media fragment is the container-level structure behind fMP4 media segments.' },
+  { source: 'media-fragment', target: 'moof', label: 'uses', description: 'A media fragment uses moof metadata to describe its track runs.' },
+  { source: 'media-fragment', target: 'mdat', label: 'uses', description: 'A media fragment pairs metadata with mdat payload bytes.' },
+  { source: 'moov', target: 'trak', label: 'contains', description: 'The moov box contains one or more trak boxes, one for each track.' },
+  { source: 'trak', target: 'mdia', label: 'contains', description: 'A trak contains mdia, which holds media-specific track information.' },
+  { source: 'mdia', target: 'minf', label: 'contains', description: 'The mdia box contains minf, grouping media information for the track.' },
+  { source: 'minf', target: 'stbl', label: 'contains', description: 'The minf box contains stbl, the sample table for locating and timing samples.' },
+  { source: 'stbl', target: 'stsd', label: 'contains', description: 'The sample table contains stsd for codec and sample entry descriptions.' },
+  { source: 'stbl', target: 'stts', label: 'contains', description: 'The sample table contains stts to map samples to decode durations.' },
+  { source: 'stbl', target: 'stss', label: 'contains', description: 'The sample table contains stss to identify keyframes or sync samples.' },
+  { source: 'stbl', target: 'stsz', label: 'contains', description: 'The sample table contains stsz to identify sample sizes.' },
+  { source: 'stbl', target: 'stco-co64', label: 'contains', description: 'The sample table contains stco or co64 to map chunks to byte offsets.' },
+  { source: 'mdat', target: 'stco-co64', label: 'located by', description: 'mdat contains encoded bytes that chunk offset boxes point into.' },
+  { source: 'moof', target: 'traf', label: 'contains', description: "A moof contains one or more traf boxes, each describing one track's fragment metadata." },
+  { source: 'traf', target: 'tfhd', label: 'contains', description: 'traf contains tfhd, which identifies the track and provides default sample values.' },
+  { source: 'traf', target: 'tfdt', label: 'contains', description: 'traf contains tfdt, which gives the base decode time for the fragment.' },
+  { source: 'traf', target: 'trun', label: 'contains', description: 'traf contains trun, which describes the samples inside the fragment.' },
+  { source: 'tfhd', target: 'trun', label: 'defaults for', description: 'tfhd values are defaults that trun entries can use or override.' },
+  { source: 'tfdt', target: 'trun', label: 'times', description: 'tfdt anchors the decode timeline for the samples described by trun.' },
+  { source: 'abr', target: 'manifest', label: 'uses', description: 'ABR uses a manifest to discover available representations and segment URLs.' },
+  { source: 'manifest', target: 'representation', label: 'lists', description: 'A manifest lists representations such as bitrate and resolution variants.' },
+  { source: 'representation', target: 'init-segment', label: 'has', description: 'Each representation has its own init segment with compatible metadata for that variant.' },
+  { source: 'representation', target: 'media-segment', label: 'has', description: 'Each representation has its own media segments for each time range.' },
+  { source: 'abr', target: 'representation', label: 'switches', description: 'ABR switches between time-aligned representations to adapt quality without changing playback time.' },
+]

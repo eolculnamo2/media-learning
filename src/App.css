@@ -1,0 +1,221 @@
+#root {
+  width: 100%;
+  min-height: 100svh;
+}
+
+.graph-shell {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.16), transparent 34rem),
+    radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.14), transparent 32rem),
+    var(--bg);
+}
+
+.graph-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px clamp(18px, 4vw, 56px) 14px;
+  text-align: left;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.graph-header h1 {
+  margin: 0;
+  max-width: 980px;
+  font-size: clamp(32px, 5vw, 58px);
+  line-height: 0.96;
+  letter-spacing: -0.055em;
+}
+
+.graph-intro {
+  max-width: 920px;
+  margin-top: 14px;
+  color: var(--text);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px clamp(18px, 4vw, 56px) 18px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  color: var(--text-h);
+  font-size: 13px;
+}
+
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
+}
+
+.graph-stage {
+  position: relative;
+  flex: 1;
+  min-height: 680px;
+  margin: 0 clamp(10px, 2vw, 28px) clamp(10px, 2vw, 28px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    color-mix(in srgb, var(--bg) 94%, var(--text-h));
+  background-size: 34px 34px;
+  box-shadow: var(--shadow);
+}
+
+.graph-svg {
+  display: block;
+  width: 100%;
+  height: min(74svh, 820px);
+  min-height: 680px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.graph-svg:active {
+  cursor: grabbing;
+}
+
+.link {
+  stroke: rgba(148, 163, 184, 0.58);
+  stroke-width: 1.7;
+  transition: opacity 160ms ease, stroke 160ms ease, stroke-width 160ms ease;
+}
+
+.link.is-highlighted {
+  stroke: #facc15;
+  stroke-width: 3.2;
+  opacity: 1;
+}
+
+.link.is-dimmed {
+  opacity: 0.1;
+}
+
+.link-label {
+  pointer-events: none;
+  fill: var(--text);
+  opacity: 0.36;
+  font-size: 10px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+
+.node {
+  cursor: pointer;
+  transition: opacity 160ms ease;
+}
+
+.node circle {
+  stroke: color-mix(in srgb, var(--bg) 70%, white);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.22));
+  transition: stroke 160ms ease, stroke-width 160ms ease, filter 160ms ease;
+}
+
+.node.is-highlighted circle {
+  stroke: #facc15;
+  stroke-width: 4;
+  filter: drop-shadow(0 0 14px rgba(250, 204, 21, 0.48));
+}
+
+.node.is-dimmed {
+  opacity: 0.18;
+}
+
+.node-label {
+  pointer-events: none;
+  fill: var(--text-h);
+  font-size: 12px;
+  font-weight: 750;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 5px;
+  stroke-linejoin: round;
+  text-anchor: middle;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 10;
+  width: min(320px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 14px 15px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.24);
+  text-align: left;
+  pointer-events: none;
+  backdrop-filter: blur(14px);
+}
+
+.tooltip strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-h);
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.tooltip p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.tooltip p + p {
+  margin-top: 10px;
+}
+
+.tooltip-why {
+  color: var(--text-h);
+}
+
+.tooltip-why span {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+@media (max-width: 760px) {
+  .graph-header {
+    padding-top: 22px;
+  }
+
+  .graph-stage,
+  .graph-svg {
+    min-height: 620px;
+  }
+
+  .link-label {
+    display: none;
+  }
+}
