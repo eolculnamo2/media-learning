@@ -9,11 +9,12 @@ type VizShellProps = {
   intro: string
   children: ReactNode
   cardClassName?: string
+  pageClassName?: string
 }
 
-function VizShell({ eyebrow, title, intro, children, cardClassName }: VizShellProps) {
+function VizShell({ eyebrow, title, intro, children, cardClassName, pageClassName }: VizShellProps) {
   return (
-    <section className="viz-page">
+    <section className={`viz-page${pageClassName ? ` ${pageClassName}` : ''}`}>
       <p className="eyebrow">{eyebrow}</p>
       <h1>{title}</h1>
       <p className="viz-intro">{intro}</p>
@@ -1293,6 +1294,59 @@ const edgeModeLabels: Record<EdgeMode, string> = {
   optional: 'optional',
 }
 
+const remuxSteps = [
+  {
+    title: 'Parse the MPD',
+    body: 'Read Period, AdaptationSet, Representation, BaseURL, SegmentTemplate, SegmentTimeline, codecs, mimeType, bandwidth, and timescale fields.',
+    outputs: ['selected audio/video representations', 'presentation timeline', 'URL template inputs'],
+  },
+  {
+    title: 'Resolve the segment fetch list',
+    body: 'Combine BaseURL with initialization and media templates, expand $Number$/$Time$ placeholders, and order fragments by the DASH timeline.',
+    outputs: ['init segment URLs', 'ordered media segment URLs', 'expected decode-time ranges'],
+  },
+  {
+    title: 'Download and parse init segments',
+    body: 'Fetch each selected init segment and parse ftyp + moov. Extract track ids, timescales, handler types, mvex/trex defaults, and stsd codec configuration.',
+    outputs: ['output ftyp brands', 'video/audio trak metadata', 'codec config boxes such as avcC/hvcC/av1C/esds'],
+  },
+  {
+    title: 'Create the output initialization area',
+    body: 'Write output ftyp and moov. Keep the file fragmented by including moov/mvex/trex rather than building a progressive MP4 sample-table index.',
+    outputs: ['ftyp', 'moov with trak video/audio', 'mvex/trex defaults'],
+  },
+  {
+    title: 'Read each media fragment',
+    body: 'For every selected segment, parse optional styp/sidx, then moof/traf/tfhd/tfdt/trun and the following mdat payload bytes.',
+    outputs: ['fragment metadata', 'encoded sample byte ranges', 'sample durations/sizes/flags/composition offsets'],
+  },
+  {
+    title: 'Normalize metadata as needed',
+    body: 'Adjust fragment sequence numbers, track ids, tfhd defaults, tfdt base decode times, durations, and trun flags according to the output timeline and chosen tracks.',
+    outputs: ['contiguous mfhd sequence numbers', 'consistent track ids', 'normalized decode timeline'],
+  },
+  {
+    title: 'Copy payload bytes into output mdat boxes',
+    body: 'Append encoded samples without decoding/re-encoding them. Preserve sample boundaries using trun sample sizes and defaults.',
+    outputs: ['copied encoded video/audio samples', 'new final mdat byte positions'],
+  },
+  {
+    title: 'Rewrite offsets after layout is known',
+    body: 'Once each output moof/mdat position is known, update trun data_offset or base-data-offset-related fields so metadata points at the copied bytes.',
+    outputs: ['correct trun data offsets', 'final moof/mdat byte offsets'],
+  },
+  {
+    title: 'Optionally build random-access metadata',
+    body: 'Use sample flags, tfdt/trun timing, and final moof offsets to derive mfra/tfra entries. Finish mfra with mfro so readers can locate it from the end of the file.',
+    outputs: ['optional mfra', 'optional tfra per track', 'optional mfro size footer'],
+  },
+  {
+    title: 'Finalize the downloadable file',
+    body: 'Emit the final structure: ftyp + moov/mvex + repeated moof/mdat pairs + optional mfra. Validate box sizes, durations, offsets, and track references.',
+    outputs: ['single fragmented MP4 file', 'seekable/indexable when optional metadata is present'],
+  },
+]
+
 function edgePath(source: DOMRect, target: DOMRect, stage: DOMRect) {
   const sourceX = source.right - stage.left
   const sourceY = source.top - stage.top + source.height / 2
@@ -1438,6 +1492,7 @@ export function DashFragmentsPage() {
       title="DASH fragments → single fMP4"
       intro="A left-to-right map of how a DASH MPD, init segment metadata, and media fragments become one downloadable fragmented MP4 file."
       cardClassName="dash-viz-card"
+      pageClassName="dash-viz-page"
     >
       <div className="dash-callout">
         <strong>Remuxing does not usually decode frames.</strong>
@@ -1578,6 +1633,29 @@ export function DashFragmentsPage() {
           </ul>
         </article>
       </div>
+
+      <section className="dash-steps-section" aria-labelledby="dash-remux-steps">
+        <p className="eyebrow">Implementation checklist</p>
+        <h2 id="dash-remux-steps">Software steps to produce the single fMP4</h2>
+        <p className="dash-steps-intro">
+          A real remuxer is mostly a parser, planner, byte copier, and metadata rewriter. It normally does not send compressed samples through a video or audio decoder.
+        </p>
+        <ol className="dash-remux-steps">
+          {remuxSteps.map((step, index) => (
+            <li key={step.title}>
+              <div className="dash-step-number">{String(index + 1).padStart(2, '0')}</div>
+              <div>
+                <h3>{step.title}</h3>
+                <p>{step.body}</p>
+                <div className="dash-step-output">
+                  <strong>Produces:</strong>
+                  {step.outputs.map((output) => <code key={output}>{output}</code>)}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
     </VizShell>
   )
 }
