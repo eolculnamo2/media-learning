@@ -1301,6 +1301,11 @@ const boxConceptIds: Record<string, string> = {
   trex: 'trex',
   trak: 'trak',
   stsd: 'stsd',
+  stts: 'stts',
+  ctts: 'ctts',
+  stsz: 'stsz',
+  stsc: 'stsc',
+  stss: 'stss',
   avcC: 'avcc',
   hvcC: 'hvcc',
   av1C: 'av1c',
@@ -1624,11 +1629,11 @@ export function DashFragmentsPage() {
           {activeEdge ? (
             <>
               <p className="eyebrow">Mapping arrow · {edgeModeLabels[activeEdge.mode]}</p>
-              <h2>{nodesById.get(activeEdge.from)?.label} → {nodesById.get(activeEdge.to)?.label}</h2>
-              <p>{activeEdge.description}</p>
+              <h2>{renderBoxRefs(nodesById.get(activeEdge.from)?.label ?? activeEdge.from)} → {renderBoxRefs(nodesById.get(activeEdge.to)?.label ?? activeEdge.to)}</h2>
+              <p>{renderBoxRefs(activeEdge.description)}</p>
               <ul>
-                <li><strong>From:</strong> {nodesById.get(activeEdge.from)?.column}</li>
-                <li><strong>To:</strong> {nodesById.get(activeEdge.to)?.column}</li>
+                <li><strong>From:</strong> {renderBoxRefs(nodesById.get(activeEdge.from)?.label ?? activeEdge.from)} <span>({nodesById.get(activeEdge.from)?.column})</span></li>
+                <li><strong>To:</strong> {renderBoxRefs(nodesById.get(activeEdge.to)?.label ?? activeEdge.to)} <span>({nodesById.get(activeEdge.to)?.column})</span></li>
                 <li><strong>Filters:</strong> {activeEdge.filters.join(', ')}</li>
               </ul>
             </>
@@ -1636,10 +1641,10 @@ export function DashFragmentsPage() {
             <>
               <p className="eyebrow">{activeNode.column} · {activeNode.kind}</p>
               <h2>{activeNode.label}</h2>
-              <p>{activeNode.description}</p>
+              <p>{renderBoxRefs(activeNode.description)}</p>
               {activeNode.details ? (
                 <ul>
-                  {activeNode.details.map((detail) => <li key={detail}>{detail}</li>)}
+                  {activeNode.details.map((detail) => <li key={detail}>{renderBoxRefs(detail)}</li>)}
                 </ul>
               ) : null}
             </>
@@ -1654,15 +1659,15 @@ export function DashFragmentsPage() {
       </div>
 
       <div className="dash-accuracy-note">
-        <strong>Accuracy note:</strong> this page maps DASH fMP4 fragments into a single fragmented MP4: <code>ftyp + moov/mvex + repeated moof/mdat + optional mfra</code>. A conversion to progressive MP4 would instead build centralized sample tables such as <code>stts</code>, <code>ctts</code>, <code>stsz</code>, <code>stsc</code>, <code>stco/co64</code>, and <code>stss</code>.
+        <strong>Accuracy note:</strong> {renderBoxRefs('this page maps DASH fMP4 fragments into a single fragmented MP4: ftyp + moov/mvex + repeated moof/mdat + optional mfra. A conversion to progressive MP4 would instead build centralized sample tables such as stts, ctts, stsz, stsc, stco/co64, and stss.')}
       </div>
 
       <div className="dash-explainer-grid">
         <article>
           <h2>What gets copied?</h2>
           <ul>
-            <li>encoded samples in <code>mdat</code></li>
-            <li>codec config from <code>stsd/avcC/hvcC/av1C/esds</code></li>
+            <li>{renderBoxRefs('encoded samples in mdat')}</li>
+            <li>{renderBoxRefs('codec config from stsd/avcC/hvcC/av1C/esds')}</li>
             <li>much of the track metadata</li>
           </ul>
         </article>
@@ -1671,18 +1676,18 @@ export function DashFragmentsPage() {
           <ul>
             <li>fragment sequence numbers</li>
             <li>track ids sometimes</li>
-            <li><code>trun</code> data offsets</li>
-            <li>base decode times if timeline is normalized</li>
+            <li>{renderBoxRefs('trun data offsets')}</li>
+            <li>{renderBoxRefs('tfdt base decode times if timeline is normalized')}</li>
             <li>movie/fragment duration metadata</li>
           </ul>
         </article>
         <article>
           <h2>What gets derived?</h2>
           <ul>
-            <li>sample DTS from <code>tfdt + trun</code> durations</li>
+            <li>{renderBoxRefs('sample DTS from tfdt + trun durations')}</li>
             <li>PTS from DTS + composition offsets</li>
             <li>keyframe/random access points from sample flags</li>
-            <li><code>mfra/tfra</code> entries from fragment offsets and random-access samples</li>
+            <li>{renderBoxRefs('mfra/tfra entries from fragment offsets and random-access samples')}</li>
           </ul>
         </article>
       </div>
