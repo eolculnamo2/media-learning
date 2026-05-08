@@ -1041,6 +1041,18 @@
   font-size: 0.9em;
 }
 
+.dash-box-ref {
+  color: var(--accent);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.dash-box-ref:hover {
+  color: var(--text-h);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .dash-explainer-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1139,6 +1151,10 @@
   background: color-mix(in srgb, var(--bg) 72%, black);
   color: var(--text-h);
   font-size: 12px;
+}
+
+.dash-step-output code .dash-box-ref {
+  font-weight: 950;
 }
 
 @media (max-width: 980px) {

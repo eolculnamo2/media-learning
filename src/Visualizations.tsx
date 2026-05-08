@@ -1294,6 +1294,59 @@ const edgeModeLabels: Record<EdgeMode, string> = {
   optional: 'optional',
 }
 
+const boxConceptIds: Record<string, string> = {
+  ftyp: 'ftyp',
+  moov: 'moov',
+  mvex: 'mvex',
+  trex: 'trex',
+  trak: 'trak',
+  stsd: 'stsd',
+  avcC: 'avcc',
+  hvcC: 'hvcc',
+  av1C: 'av1c',
+  esds: 'esds',
+  styp: 'styp',
+  sidx: 'sidx',
+  moof: 'moof',
+  traf: 'traf',
+  tfhd: 'tfhd',
+  tfdt: 'tfdt',
+  trun: 'trun',
+  mdat: 'mdat',
+  mfra: 'mfra',
+  tfra: 'tfra',
+  mfro: 'mfro',
+  'stco/co64': 'stco-co64',
+}
+
+const boxRefPattern = new RegExp(
+  Object.keys(boxConceptIds)
+    .sort((a, b) => b.length - a.length)
+    .map((boxName) => boxName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|'),
+  'g',
+)
+
+function renderBoxRefs(text: string) {
+  const parts: ReactNode[] = []
+  let lastIndex = 0
+
+  for (const match of text.matchAll(boxRefPattern)) {
+    const boxName = match[0]
+    const index = match.index ?? 0
+    if (index > lastIndex) parts.push(text.slice(lastIndex, index))
+    parts.push(
+      <Link key={`${boxName}-${index}`} className="dash-box-ref" to={`/concept/${boxConceptIds[boxName]}`}>
+        {boxName}
+      </Link>,
+    )
+    lastIndex = index + boxName.length
+  }
+
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex))
+  return parts
+}
+
 const remuxSteps = [
   {
     title: 'Parse the MPD',
@@ -1646,10 +1699,10 @@ export function DashFragmentsPage() {
               <div className="dash-step-number">{String(index + 1).padStart(2, '0')}</div>
               <div>
                 <h3>{step.title}</h3>
-                <p>{step.body}</p>
+                <p>{renderBoxRefs(step.body)}</p>
                 <div className="dash-step-output">
                   <strong>Produces:</strong>
-                  {step.outputs.map((output) => <code key={output}>{output}</code>)}
+                  {step.outputs.map((output) => <code key={output}>{renderBoxRefs(output)}</code>)}
                 </div>
               </div>
             </li>
