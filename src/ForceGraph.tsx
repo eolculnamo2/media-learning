@@ -168,7 +168,7 @@ export function ForceGraph({ nodes, edges, onNodeSelect }: GraphProps) {
       .attr('class', 'link-label')
       .text((edge) => edge.label)
 
-    let simulation!: d3.Simulation<SimNode, undefined>
+    const simulation = d3.forceSimulation(simNodes)
 
     const node = viewport
       .append('g')
@@ -230,8 +230,7 @@ export function ForceGraph({ nodes, edges, onNodeSelect }: GraphProps) {
       .attr('dy', (graphNode) => nodeRadius(graphNode) + 15)
       .text((graphNode) => graphNode.label)
 
-    simulation = d3
-      .forceSimulation(simNodes)
+    simulation
       .force(
         'link',
         d3

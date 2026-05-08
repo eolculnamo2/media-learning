@@ -7,6 +7,7 @@ import {
   AbrLadderPage,
   BoxTreePage,
   ComparisonPage,
+  DashFragmentsPage,
   ReadPathPage,
   ResponsibilityPage,
   SampleTablePage,
@@ -38,6 +39,7 @@ const exampleValuesById: Record<string, string[]> = {
   'stco-co64': ['stco offset: 123456', 'co64 offset: 5_123_456_789 for large files'],
   mdat: ['payload: encoded H.264 NAL units or AAC frames', 'size: can be many MB'],
   moof: ['contains: mfhd, traf', 'sequence_number: 42'],
+  mfra: ['optional top-level box, often near file end', 'contains: tfra, mfro', 'maps fragment time → moof byte offset'],
   traf: ['track_ID: 1 via tfhd', 'contains: tfhd, tfdt, trun'],
   tfhd: ['track_ID: 1', 'default_sample_duration: 3000', 'default_sample_size: 1200'],
   tfdt: ['baseMediaDecodeTime: 270000', 'timescale: 90000', 'starts at: 3s'],
@@ -80,6 +82,7 @@ function Layout({ children }: { children: ReactNode }) {
           <Link to="/read-path">Read path</Link>
           <Link to="/abr-ladder">ABR ladder</Link>
           <Link to="/responsibilities">Box jobs</Link>
+          <Link to="/dash-fragments">DASH → fMP4</Link>
         </div>
       </nav>
       {children}
@@ -151,6 +154,7 @@ function App() {
         <Route path="/read-path" element={<ReadPathPage />} />
         <Route path="/abr-ladder" element={<AbrLadderPage />} />
         <Route path="/responsibilities" element={<ResponsibilityPage />} />
+        <Route path="/dash-fragments" element={<DashFragmentsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
