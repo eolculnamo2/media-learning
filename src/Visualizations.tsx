@@ -1731,11 +1731,206 @@ const abrVariants: Variant[] = [
   { label: '1080p', bitrateMbps: 6, shortLabel: '6 Mbps' },
 ]
 
+const reservoirVariantOptions = [0.8, 1.5, 3, 6]
+
 function variantForBuffer(bufferSeconds: number) {
   if (bufferSeconds < 5) return abrVariants[0]
   if (bufferSeconds < 12) return abrVariants[1]
   if (bufferSeconds < 20) return abrVariants[2]
   return abrVariants[3]
+}
+
+function VbrVarianceViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [mode, setMode] = useState<'cbr' | 'vbr'>('vbr')
+  const [spikeSeverity, setSpikeSeverity] = useState(7)
+  const nominalBitrate = 3
+
+  const data = useMemo(() => d3.range(1, 33).map((index) => {
+    const motionPulse = [8, 17, 18, 27].includes(index) ? spikeSeverity * (index === 18 ? 1.25 : 1) : 0
+    const gentleVariation = mode === 'cbr' ? 0 : Math.sin(index * 1.6) * 0.32 + ((index * 13) % 5) * 0.08
+    return {
+      index,
+      bitrate: mode === 'cbr' ? nominalBitrate : Math.max(1.6, nominalBitrate + gentleVariation + motionPulse),
+      isSpike: motionPulse > 0,
+    }
+  }), [mode, spikeSeverity])
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+
+    const width = svgElement.clientWidth || 920
+    const height = 380
+    const margin = { top: 34, right: 36, bottom: 54, left: 62 }
+    const x = d3.scaleBand<number>().domain(data.map((sample) => sample.index)).range([margin.left, width - margin.right]).padding(0.2)
+    const y = d3.scaleLinear().domain([0, Math.max(10.5, d3.max(data, (sample) => sample.bitrate) ?? 10)]).nice().range([height - margin.bottom, margin.top])
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    svg.append('g').attr('transform', `translate(0,${height - margin.bottom})`).attr('class', 'buffer-axis').call(d3.axisBottom(x).tickValues(data.filter((sample) => sample.index % 4 === 0).map((sample) => sample.index)).tickFormat((value) => `seg ${value}`))
+    svg.append('g').attr('transform', `translate(${margin.left},0)`).attr('class', 'buffer-axis').call(d3.axisLeft(y).ticks(5).tickFormat((value) => `${value} Mbps`))
+
+    svg.append('line').attr('x1', margin.left).attr('x2', width - margin.right).attr('y1', y(nominalBitrate)).attr('y2', y(nominalBitrate)).attr('class', 'vbr-nominal-line')
+    svg.append('text').attr('x', width - margin.right - 6).attr('y', y(nominalBitrate) - 8).attr('text-anchor', 'end').attr('class', 'vbr-annotation').text('nominal bitrate: 3 Mbps average representation')
+
+    svg.selectAll('.vbr-bar').data(data).join('rect').attr('class', (sample) => `vbr-bar${sample.isSpike ? ' is-spike' : ''}`).attr('x', (sample) => x(sample.index) ?? 0).attr('y', height - margin.bottom).attr('width', x.bandwidth()).attr('height', 0).attr('rx', 5).transition().duration(480).attr('y', (sample) => y(sample.bitrate)).attr('height', (sample) => height - margin.bottom - y(sample.bitrate))
+
+    const biggestSpike = data.reduce((largest, sample) => sample.bitrate > largest.bitrate ? sample : largest, data[0])
+    const spikeX = (x(biggestSpike.index) ?? 0) + x.bandwidth() / 2
+    svg.append('path').attr('class', 'vbr-callout-line').attr('d', `M${spikeX},${y(biggestSpike.bitrate) - 8} C${spikeX + 38},${y(biggestSpike.bitrate) - 70} ${spikeX + 118},${y(biggestSpike.bitrate) - 58} ${spikeX + 150},${y(biggestSpike.bitrate) - 30}`)
+    svg.append('text').attr('x', Math.min(width - 300, spikeX + 156)).attr('y', y(biggestSpike.bitrate) - 38).attr('class', 'vbr-spike-label').text('temporary VBR spike')
+    svg.append('text').attr('x', Math.min(width - 300, spikeX + 156)).attr('y', y(biggestSpike.bitrate) - 17).attr('class', 'vbr-annotation').text('large scene complexity increase')
+  }, [data])
+
+  return (
+    <section className="buffer-visual-card" aria-labelledby="vbr-variance-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">VBR reality check</p>
+        <h2 id="vbr-variance-title">Average bitrate hides variance</h2>
+        <p>A 3 Mbps representation is not a promise that every segment costs 3 Mbps. Calm scenes may be cheap; action scenes may briefly need 8-10 Mbps worth of bits.</p>
+      </div>
+      <div className="buffer-control-grid compact">
+        <label>Encoding mode <strong>{mode.toUpperCase()}</strong><select value={mode} onChange={(event) => setMode(event.target.value as 'cbr' | 'vbr')}><option value="cbr">CBR: steady chunks</option><option value="vbr">VBR: bursty chunks</option></select></label>
+        <label>Spike severity <strong>{spikeSeverity.toFixed(1)} Mbps</strong><input type="range" min="2" max="7" step="0.5" value={spikeSeverity} onChange={(event) => setSpikeSeverity(Number(event.target.value))} /></label>
+      </div>
+      <svg ref={svgRef} className="vbr-variance-svg" role="img" aria-label="VBR segment size variability chart" />
+      <p className="buffer-lesson-line">If network throughput merely equals the average bitrate, a temporary large chunk can still arrive too slowly and drain playback buffer.</p>
+    </section>
+  )
+}
+
+type ReservoirTankState = {
+  time: number
+  bufferSeconds: number
+  chunkProgressSeconds: number
+  currentChunkBitrate: number
+  downloadingSpike: boolean
+}
+
+function ReservoirDangerTankViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [throughputMbps, setThroughputMbps] = useState(3)
+  const [selectedBitrate, setSelectedBitrate] = useState(3)
+  const [reservoirSeconds, setReservoirSeconds] = useState(10)
+  const [spikesEnabled, setSpikesEnabled] = useState(true)
+  const [isRunning, setIsRunning] = useState(true)
+  const maxBufferSeconds = 32
+  const criticalDangerZoneSeconds = 4
+  const segmentDurationSeconds = 2
+  const [state, setState] = useState<ReservoirTankState>({ time: 0, bufferSeconds: 16, chunkProgressSeconds: 0, currentChunkBitrate: selectedBitrate, downloadingSpike: false })
+
+  useEffect(() => {
+    setState((current) => ({ ...current, currentChunkBitrate: selectedBitrate, downloadingSpike: false, chunkProgressSeconds: 0 }))
+  }, [selectedBitrate])
+
+  useEffect(() => {
+    if (!isRunning) return
+
+    const interval = window.setInterval(() => {
+      setState((current) => {
+        const dt = 0.25
+        const nextTime = current.time + dt
+        const downloadMediaSeconds = (throughputMbps / current.currentChunkBitrate) * dt
+        const nextProgress = current.chunkProgressSeconds + downloadMediaSeconds
+        const completedSegments = Math.floor(nextProgress / segmentDurationSeconds)
+        const nextChunkIndex = Math.floor(nextTime / 5)
+        const nextChunkIsSpike = spikesEnabled && nextChunkIndex % 4 === 2
+        const nextChunkBitrate = nextChunkIsSpike ? selectedBitrate * 2.8 : selectedBitrate
+        return {
+          time: nextTime,
+          bufferSeconds: Math.max(0, Math.min(maxBufferSeconds, current.bufferSeconds - dt + completedSegments * segmentDurationSeconds)),
+          chunkProgressSeconds: nextProgress % segmentDurationSeconds,
+          currentChunkBitrate: completedSegments > 0 ? nextChunkBitrate : current.currentChunkBitrate,
+          downloadingSpike: completedSegments > 0 ? nextChunkIsSpike : current.downloadingSpike,
+        }
+      })
+    }, 250)
+
+    return () => window.clearInterval(interval)
+  }, [isRunning, selectedBitrate, spikesEnabled, throughputMbps])
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+
+    const width = svgElement.clientWidth || 920
+    const height = 560
+    const tankX = 76
+    const tankY = 42
+    const tankWidth = Math.min(280, width * 0.34)
+    const tankHeight = 430
+    const y = d3.scaleLinear().domain([0, maxBufferSeconds]).range([tankY + tankHeight, tankY]).clamp(true)
+    const fillHeight = tankY + tankHeight - y(state.bufferSeconds)
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    const defs = svg.append('defs')
+    const regionGradient = defs.append('linearGradient').attr('id', 'reservoir-region-gradient').attr('x1', '0').attr('x2', '0').attr('y1', '0').attr('y2', '1')
+    regionGradient.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(34,197,94,0.22)')
+    regionGradient.append('stop').attr('offset', '54%').attr('stop-color', 'rgba(59,130,246,0.18)')
+    regionGradient.append('stop').attr('offset', '82%').attr('stop-color', 'rgba(245,158,11,0.22)')
+    regionGradient.append('stop').attr('offset', '100%').attr('stop-color', 'rgba(239,68,68,0.32)')
+    const fillGradient = defs.append('linearGradient').attr('id', 'reservoir-fill-gradient').attr('x1', '0').attr('x2', '0').attr('y1', '1').attr('y2', '0')
+    fillGradient.append('stop').attr('offset', '0%').attr('stop-color', '#ef4444')
+    fillGradient.append('stop').attr('offset', '38%').attr('stop-color', '#f59e0b')
+    fillGradient.append('stop').attr('offset', '68%').attr('stop-color', '#38bdf8')
+    fillGradient.append('stop').attr('offset', '100%').attr('stop-color', '#22c55e')
+
+    svg.append('rect').attr('x', tankX).attr('y', tankY).attr('width', tankWidth).attr('height', tankHeight).attr('rx', 26).attr('fill', 'url(#reservoir-region-gradient)').attr('stroke', 'rgba(255,255,255,0.3)').attr('stroke-width', 2)
+    svg.append('rect').attr('x', tankX + 18).attr('y', tankY + tankHeight - fillHeight).attr('width', tankWidth - 36).attr('height', fillHeight).attr('rx', 17).attr('fill', 'url(#reservoir-fill-gradient)').attr('class', state.bufferSeconds < criticalDangerZoneSeconds ? 'danger-pulse' : '')
+    svg.append('rect').attr('x', tankX + 18).attr('y', tankY + 14).attr('width', tankWidth - 36).attr('height', tankHeight - 28).attr('rx', 17).attr('class', 'buffer-tank-glass')
+
+    const boundaries = [
+      { value: maxBufferSeconds, label: 'Comfortable operating region', cls: 'safe' },
+      { value: reservoirSeconds, label: 'Reservoir / protected safety margin', cls: 'reservoir' },
+      { value: criticalDangerZoneSeconds, label: 'Critical danger zone', cls: 'danger' },
+      { value: 0, label: 'Rebuffer / playback stall', cls: 'stall' },
+    ]
+
+    boundaries.slice(1).forEach((boundary) => {
+      svg.append('line').attr('x1', tankX - 10).attr('x2', tankX + tankWidth + 10).attr('y1', y(boundary.value)).attr('y2', y(boundary.value)).attr('class', `reservoir-boundary ${boundary.cls}`)
+    })
+    boundaries.forEach((boundary, index) => {
+      const labelY = index === 0 ? tankY + 28 : y(boundary.value) - 10
+      svg.append('text').attr('x', tankX + tankWidth + 28).attr('y', labelY).attr('class', `reservoir-region-label ${boundary.cls}`).text(boundary.label)
+    })
+
+    svg.append('text').attr('x', tankX + tankWidth / 2).attr('y', tankY + tankHeight / 2 - 8).attr('class', 'buffer-tank-number').text(`${state.bufferSeconds.toFixed(1)}s`)
+    svg.append('text').attr('x', tankX + tankWidth / 2).attr('y', tankY + tankHeight / 2 + 24).attr('class', 'buffer-tank-caption').text('buffer ahead')
+
+    const rightX = tankX + tankWidth + 300
+    const drain = state.downloadingSpike ? 'large VBR chunk: buffer draining faster' : throughputMbps >= selectedBitrate ? 'download replenishing buffer' : 'playback consuming buffer'
+    svg.append('text').attr('x', rightX).attr('y', tankY + 64).attr('class', state.downloadingSpike ? 'reservoir-event-label danger' : 'reservoir-event-label').text(drain)
+    svg.append('text').attr('x', rightX).attr('y', tankY + 104).attr('class', 'reservoir-callout-text').text('temporary disturbance absorbed here')
+    svg.append('text').attr('x', rightX).attr('y', y(criticalDangerZoneSeconds) + 18).attr('class', 'reservoir-callout-text danger').text('panic downgrade region')
+    svg.append('text').attr('x', rightX).attr('y', y(reservoirSeconds) - 24).attr('class', 'reservoir-callout-text safe').text('safe adaptation region')
+    svg.append('path').attr('class', 'reservoir-arrow').attr('d', `M${rightX - 18},${tankY + 100} C${rightX - 96},${tankY + 120} ${tankX + tankWidth + 20},${y(reservoirSeconds) + 36} ${tankX + tankWidth - 12},${y(reservoirSeconds) + 26}`)
+    svg.append('text').attr('x', tankX).attr('y', height - 28).attr('class', 'buffer-time-label').text(`network ${throughputMbps.toFixed(1)} Mbps, selected ${selectedBitrate.toFixed(1)} Mbps, chunk cost ${state.currentChunkBitrate.toFixed(1)} Mbps-equivalent`)
+  }, [criticalDangerZoneSeconds, maxBufferSeconds, reservoirSeconds, selectedBitrate, state, throughputMbps])
+
+  return (
+    <section className="buffer-visual-card" aria-labelledby="danger-tank-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">Protected safety space</p>
+        <h2 id="danger-tank-title">Reservoir + danger zone</h2>
+        <p>The reservoir buys reaction time. A temporary oversized chunk can spend safety margin before playback is truly endangered, so the player does not panic-switch on every bump.</p>
+      </div>
+      <div className="buffer-control-grid compact">
+        <label>Network throughput <strong>{throughputMbps.toFixed(1)} Mbps</strong><input type="range" min="0.8" max="8" step="0.1" value={throughputMbps} onChange={(event) => setThroughputMbps(Number(event.target.value))} /></label>
+        <label>Reservoir size <strong>{reservoirSeconds.toFixed(0)}s</strong><input type="range" min="4" max="18" step="1" value={reservoirSeconds} onChange={(event) => setReservoirSeconds(Number(event.target.value))} /></label>
+        <label>Representation <strong>{selectedBitrate.toFixed(1)} Mbps</strong><select value={selectedBitrate} onChange={(event) => setSelectedBitrate(Number(event.target.value))}>{reservoirVariantOptions.map((bitrate) => <option key={bitrate} value={bitrate}>{bitrate} Mbps</option>)}</select></label>
+        <label>Segment spikes <strong>{spikesEnabled ? 'enabled' : 'off'}</strong><input type="checkbox" checked={spikesEnabled} onChange={(event) => setSpikesEnabled(event.target.checked)} /></label>
+      </div>
+      <div className="buffer-actions">
+        <button type="button" onClick={() => setIsRunning((current) => !current)}>{isRunning ? 'Pause' : 'Resume'}</button>
+        <button type="button" onClick={() => setState({ time: 0, bufferSeconds: 16, chunkProgressSeconds: 0, currentChunkBitrate: selectedBitrate, downloadingSpike: false })}>Restart</button>
+      </div>
+      <svg ref={svgRef} className="reservoir-danger-svg" role="img" aria-label="Reservoir and danger zone buffer tank" />
+    </section>
+  )
 }
 
 function BufferReservoirViz() {
@@ -1961,6 +2156,162 @@ function DecisionComparisonViz() {
   )
 }
 
+type OscillationSample = {
+  t: number
+  throughput: number
+  spike: boolean
+  bufferSmall: number
+  qualitySmall: number
+  bufferHealthy: number
+  qualityHealthy: number
+}
+
+function nextQualityFromBuffer(bufferSeconds: number, reservoirSeconds: number, currentQuality: number) {
+  if (bufferSeconds < 4) return 0.8
+  if (bufferSeconds < reservoirSeconds) return Math.min(currentQuality, 1.5)
+  if (bufferSeconds > reservoirSeconds + 12) return 6
+  if (bufferSeconds > reservoirSeconds + 6) return 3
+  return 1.5
+}
+
+function buildOscillationSamples(): OscillationSample[] {
+  const throughput = [4.2, 3.8, 5.6, 2.7, 4.8, 2.5, 6.2, 3.1, 4.4, 2.6, 5.4, 3.0, 6.0, 2.8, 4.7, 3.3, 5.8, 2.9, 4.1, 3.5, 5.5, 2.7, 4.9, 3.2]
+  let bufferSmall = 8
+  let bufferHealthy = 18
+  let qualitySmall = 3
+  let qualityHealthy = 3
+  return throughput.map((network, t) => {
+    const spike = [5, 9, 15, 21].includes(t)
+    const chunkMultiplier = spike ? 2.45 : 1
+    bufferSmall = Math.max(0, Math.min(28, bufferSmall + network / (qualitySmall * chunkMultiplier) * 2 - 2))
+    bufferHealthy = Math.max(0, Math.min(28, bufferHealthy + network / (qualityHealthy * chunkMultiplier) * 2 - 2))
+    qualitySmall = nextQualityFromBuffer(bufferSmall, 2, qualitySmall)
+    qualityHealthy = nextQualityFromBuffer(bufferHealthy, 10, qualityHealthy)
+    return { t, throughput: network, spike, bufferSmall, qualitySmall, bufferHealthy, qualityHealthy }
+  })
+}
+
+function OscillationSimulationViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [isRunning, setIsRunning] = useState(true)
+  const [frame, setFrame] = useState(8)
+  const samples = useMemo(buildOscillationSamples, [])
+
+  useEffect(() => {
+    if (!isRunning) return
+    const interval = window.setInterval(() => setFrame((current) => current >= samples.length ? 8 : current + 1), 520)
+    return () => window.clearInterval(interval)
+  }, [isRunning, samples.length])
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+
+    const visible = samples.slice(0, frame)
+    const width = svgElement.clientWidth || 1060
+    const height = 430
+    const gap = 44
+    const panelWidth = (width - gap - 54) / 2
+    const margin = { top: 50, right: 28, bottom: 50, left: 50 }
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    const drawPanel = (xOffset: number, title: string, kind: 'small' | 'healthy') => {
+      const x = d3.scaleLinear().domain([0, samples.length - 1]).range([xOffset + margin.left, xOffset + panelWidth - margin.right])
+      const yBuffer = d3.scaleLinear().domain([0, 28]).range([height - margin.bottom, margin.top])
+      const yQuality = d3.scaleLinear().domain([0, 6.5]).range([height - margin.bottom, margin.top])
+      const bufferKey = kind === 'small' ? 'bufferSmall' : 'bufferHealthy'
+      const qualityKey = kind === 'small' ? 'qualitySmall' : 'qualityHealthy'
+      const bufferLine = d3.line<OscillationSample>().x((sample) => x(sample.t)).y((sample) => yBuffer(sample[bufferKey])).curve(d3.curveMonotoneX)
+      const qualityLine = d3.line<OscillationSample>().x((sample) => x(sample.t)).y((sample) => yQuality(sample[qualityKey])).curve(d3.curveStepAfter)
+
+      svg.append('text').attr('x', xOffset + margin.left).attr('y', 26).attr('class', 'buffer-panel-title').text(title)
+      svg.append('g').attr('transform', `translate(0,${height - margin.bottom})`).attr('class', 'buffer-axis').call(d3.axisBottom(x).ticks(5).tickFormat((value) => `seg ${Number(value) + 1}`))
+      svg.append('g').attr('transform', `translate(${xOffset + margin.left},0)`).attr('class', 'buffer-axis').call(d3.axisLeft(yBuffer).ticks(4).tickFormat((value) => `${value}s`))
+      svg.append('rect').attr('x', xOffset + margin.left).attr('y', yBuffer(4)).attr('width', panelWidth - margin.left - margin.right).attr('height', height - margin.bottom - yBuffer(4)).attr('class', 'oscillation-danger-zone')
+      visible.filter((sample) => sample.spike).forEach((sample) => {
+        svg.append('rect').attr('x', x(sample.t) - 6).attr('y', margin.top).attr('width', 12).attr('height', height - margin.top - margin.bottom).attr('class', 'oscillation-spike-band')
+      })
+      svg.append('path').datum(visible).attr('class', 'oscillation-buffer-line').attr('d', bufferLine)
+      svg.append('path').datum(visible).attr('class', kind === 'small' ? 'oscillation-quality-line harsh' : 'oscillation-quality-line').attr('d', qualityLine)
+      svg.append('text').attr('x', xOffset + panelWidth - margin.right).attr('y', margin.top + 16).attr('text-anchor', 'end').attr('class', 'comparison-legend-text').text('buffer occupancy')
+      svg.append('text').attr('x', xOffset + panelWidth - margin.right).attr('y', margin.top + 38).attr('text-anchor', 'end').attr('class', 'comparison-legend-text choice').text('selected representation')
+
+      const annotation = kind === 'small' ? 'temporary spike triggered downgrade' : 'reservoir absorbed disturbance'
+      const annotated = visible.find((sample) => sample.spike && sample.t > 4) ?? visible.at(-1)
+      if (annotated) {
+        svg.append('text').attr('x', x(annotated.t)).attr('y', yBuffer(annotated[bufferKey]) - 18).attr('class', kind === 'small' ? 'oscillation-note danger' : 'oscillation-note safe').text(annotation)
+      }
+    }
+
+    drawPanel(0, 'Small/no reservoir: twitchy controller', 'small')
+    drawPanel(panelWidth + gap, 'Healthy reservoir: damped controller', 'healthy')
+  }, [frame, samples])
+
+  return (
+    <section className="buffer-visual-card" aria-labelledby="oscillation-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">Oscillation prevention</p>
+        <h2 id="oscillation-title">Same disturbances, different stability</h2>
+        <p>Without protected margin, every spike looks like an emergency. With a reservoir, transient trouble is absorbed before the controller starts thrashing between qualities.</p>
+      </div>
+      <div className="buffer-actions">
+        <button type="button" onClick={() => setIsRunning((current) => !current)}>{isRunning ? 'Pause' : 'Resume'}</button>
+        <button type="button" onClick={() => { setFrame(8); setIsRunning(true) }}>Restart</button>
+      </div>
+      <svg ref={svgRef} className="oscillation-svg" role="img" aria-label="Oscillation comparison with and without reservoir" />
+    </section>
+  )
+}
+
+function ShiftedRateMapViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+
+    const width = svgElement.clientWidth || 900
+    const height = 360
+    const margin = { top: 34, right: 36, bottom: 54, left: 62 }
+    const x = d3.scaleLinear().domain([0, 30]).range([margin.left, width - margin.right])
+    const y = d3.scaleLinear().domain([0, 6.5]).range([height - margin.bottom, margin.top])
+    const data = d3.range(0, 31).map((buffer) => ({
+      buffer,
+      noReservoir: buffer < 5 ? 0.8 : buffer < 12 ? 1.5 : buffer < 20 ? 3 : 6,
+      withReservoir: buffer < 10 ? 0.8 : buffer < 16 ? 1.5 : buffer < 24 ? 3 : 6,
+    }))
+    const lineNoReservoir = d3.line<(typeof data)[number]>().x((sample) => x(sample.buffer)).y((sample) => y(sample.noReservoir)).curve(d3.curveStepAfter)
+    const lineWithReservoir = d3.line<(typeof data)[number]>().x((sample) => x(sample.buffer)).y((sample) => y(sample.withReservoir)).curve(d3.curveStepAfter)
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    svg.append('rect').attr('x', x(0)).attr('y', margin.top).attr('width', x(10) - x(0)).attr('height', height - margin.top - margin.bottom).attr('class', 'rate-map-reservoir-band')
+    svg.append('g').attr('transform', `translate(0,${height - margin.bottom})`).attr('class', 'buffer-axis').call(d3.axisBottom(x).ticks(6).tickFormat((value) => `${value}s`))
+    svg.append('g').attr('transform', `translate(${margin.left},0)`).attr('class', 'buffer-axis').call(d3.axisLeft(y).tickValues([0.8, 1.5, 3, 6]).tickFormat((value) => `${value} Mbps`))
+    svg.append('path').datum(data).attr('class', 'rate-map-line no-reservoir').attr('d', lineNoReservoir)
+    svg.append('path').datum(data).attr('class', 'rate-map-line with-reservoir').attr('d', lineWithReservoir)
+    svg.append('text').attr('x', x(5)).attr('y', margin.top + 24).attr('text-anchor', 'middle').attr('class', 'rate-map-band-label').text('protected playback insurance')
+    svg.append('text').attr('x', x(21)).attr('y', y(6) - 12).attr('class', 'rate-map-label no-reservoir').text('A: no reservoir')
+    svg.append('text').attr('x', x(24)).attr('y', y(3) + 26).attr('class', 'rate-map-label with-reservoir').text('B: with reservoir, curve shifted right')
+    svg.append('text').attr('x', margin.left).attr('y', height - 14).attr('class', 'buffer-time-label').text('The first portion of buffer is intentionally excluded from aggressive adaptation decisions.')
+  }, [])
+
+  return (
+    <section className="buffer-visual-card" aria-labelledby="shifted-rate-map-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">Netflix phrase decoded</p>
+        <h2 id="shifted-rate-map-title">Shift the rate map to the right</h2>
+        <p>The reservoir does not make the player more conservative everywhere. It moves the aggressive part of the buffer-to-bitrate curve away from zero so early buffer seconds are kept as stall insurance.</p>
+      </div>
+      <svg ref={svgRef} className="rate-map-svg" role="img" aria-label="Rate map shifted right by reservoir" />
+      <p className="buffer-lesson-line"><strong>The reservoir acts as protected playback insurance.</strong></p>
+    </section>
+  )
+}
+
 export function BufferAbrPage() {
   return (
     <VizShell
@@ -2000,6 +2351,35 @@ export function BufferAbrPage() {
         <p>Buffer occupancy is measured in seconds of playable media. Low buffer means danger. High buffer means safety. Unlike a future bandwidth estimate, buffer is an observable state variable the player can directly control through its quality choices.</p>
       </section>
 
+      <section className="buffer-explainer-section reservoir-study-intro" aria-labelledby="reservoir-study-title">
+        <p className="eyebrow">New section</p>
+        <h2 id="reservoir-study-title">Reservoirs, Safety Margins, and Oscillation Prevention</h2>
+        <p>Netflix introduces the reservoir because encoded video and networks are both lumpy. A VBR representation can average 3 Mbps while individual action-scene chunks behave like 8-10 Mbps chunks. If the player reacts to each lump as a new long-term truth, quality starts bouncing.</p>
+        <p>The reservoir is the protected part of the buffer that absorbs temporary disturbances before playback is endangered. It makes ABR behavior feel less like a nervous reflex and more like a stable system with safety margin.</p>
+      </section>
+
+      <VbrVarianceViz />
+
+      <ReservoirDangerTankViz />
+
+      <OscillationSimulationViz />
+
+      <ShiftedRateMapViz />
+
+      <section className="buffer-explainer-grid">
+        <article>
+          <h2>Systems view</h2>
+          <p>A player is a feedback control system: it observes what happened, chooses the next variant, then observes the new buffer state. Throughput measurements are noisy, Wi-Fi and mobile links fluctuate, and VBR chunks add their own burstiness.</p>
+          <p>If the controller reacts violently to every measurement, it oscillates. The reservoir adds damping and inertia. Buffer level changes more slowly than raw throughput estimates, so it is a better signal for deciding when playback is actually unsafe.</p>
+          <p>Think of car suspension: it absorbs bumps instead of steering violently every time a tire hits rough pavement.</p>
+        </article>
+        <article>
+          <h2>Why oscillation drops</h2>
+          <p>Temporary large chunks spend reservoir first. The player can wait to see whether the problem persists before downgrading, and it avoids immediate upgrades until the buffer has rebuilt enough protected margin.</p>
+          <p>That delay is intentional. It prevents a short disturbance from becoming a visible quality downgrade, then upgrade, then downgrade again.</p>
+        </article>
+      </section>
+
       <BufferReservoirViz />
       <BufferLadderViz />
       <DecisionComparisonViz />
@@ -2011,24 +2391,24 @@ export function BufferAbrPage() {
           <p>The buffer is like a fuel tank. You do not drive aggressively when the tank is nearly empty.</p>
         </article>
         <article>
-          <h2>Implementation sketch</h2>
-          <pre><code>{`type BufferBasedAbrInput = {
-  bufferAheadSeconds: number
-  variants: Variant[]
+          <h2>Implementation-oriented pseudo-code</h2>
+          <pre><code>{`type BufferRegions = {
+  criticalDangerZoneSeconds: number
+  reservoirSeconds: number
 }
 
-function chooseVariant(input: BufferBasedAbrInput): Variant {
-  if (input.bufferAheadSeconds < 5) {
-    return lowestVariant(input.variants)
+function chooseVariant(input) {
+  if (input.bufferAhead < criticalDangerZone) {
+    return emergencyLowestVariant()
   }
 
-  if (input.bufferAheadSeconds > 20) {
-    return highestAffordableOrPreferredVariant(input.variants)
+  if (input.bufferAhead < reservoirSeconds) {
+    return conservativeVariant()
   }
 
-  return mapBufferToVariant(input.bufferAheadSeconds, input.variants)
+  return adaptiveBufferMapping(input)
 }`}</code></pre>
-          <p>Modern players often combine buffer-based logic with bandwidth estimates, dropped-frame data, device constraints, and switch hysteresis.</p>
+          <p>Modern players often combine buffer occupancy, throughput estimation, hysteresis, switch cooldowns, device constraints, and dropped frame monitoring.</p>
         </article>
       </section>
 

@@ -1277,6 +1277,10 @@
   margin: 16px 0 10px;
 }
 
+.buffer-control-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
 .buffer-control-grid label {
   display: grid;
   gap: 8px;
@@ -1293,9 +1297,19 @@
   color: var(--text-h);
 }
 
-.buffer-control-grid input {
+.buffer-control-grid input,
+.buffer-control-grid select {
   width: 100%;
   accent-color: var(--accent);
+}
+
+.buffer-control-grid select {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--bg) 76%, black);
+  color: var(--text-h);
+  font-weight: 800;
 }
 
 .buffer-actions {
@@ -1323,7 +1337,11 @@
 
 .buffer-reservoir-svg,
 .buffer-ladder-svg,
-.buffer-comparison-svg {
+.buffer-comparison-svg,
+.vbr-variance-svg,
+.reservoir-danger-svg,
+.oscillation-svg,
+.rate-map-svg {
   display: block;
   width: 100%;
   border: 1px solid var(--border);
@@ -1338,6 +1356,27 @@
 .buffer-reservoir-svg { height: 390px; }
 .buffer-ladder-svg { height: 330px; }
 .buffer-comparison-svg { height: 360px; }
+.vbr-variance-svg { height: 380px; }
+.reservoir-danger-svg { height: 560px; }
+.oscillation-svg { height: 430px; }
+.rate-map-svg { height: 360px; }
+
+.buffer-lesson-line {
+  margin: 12px 0 0;
+  border-left: 4px solid #facc15;
+  border-radius: 12px;
+  padding: 10px 13px;
+  background: rgba(250, 204, 21, 0.1);
+  color: var(--text-h);
+  font-weight: 850;
+  line-height: 1.5;
+}
+
+.reservoir-study-intro {
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.18), transparent 26rem),
+    color-mix(in srgb, var(--bg) 80%, var(--text-h));
+}
 
 .buffer-tank-shell {
   fill: color-mix(in srgb, var(--bg) 78%, var(--text-h));
@@ -1425,6 +1464,72 @@
   fill: var(--text);
   font-size: 11px;
   font-weight: 750;
+}
+
+.vbr-bar {
+  fill: rgba(56, 189, 248, 0.72);
+  stroke: rgba(255, 255, 255, 0.24);
+}
+
+.vbr-bar.is-spike {
+  fill: url(#unused);
+  fill: #fb923c;
+  filter: drop-shadow(0 0 12px rgba(251, 146, 60, 0.42));
+}
+
+.vbr-nominal-line {
+  stroke: #facc15;
+  stroke-width: 2.5;
+  stroke-dasharray: 8 6;
+}
+
+.vbr-callout-line,
+.reservoir-arrow {
+  fill: none;
+  stroke: #facc15;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 7 6;
+}
+
+.vbr-spike-label,
+.reservoir-event-label {
+  fill: #fb923c;
+  font-size: 17px;
+  font-weight: 950;
+}
+
+.vbr-annotation,
+.reservoir-callout-text,
+.reservoir-region-label,
+.rate-map-band-label,
+.rate-map-label,
+.oscillation-note {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.reservoir-boundary {
+  stroke-width: 2;
+  stroke-dasharray: 9 7;
+}
+
+.reservoir-boundary.reservoir { stroke: #38bdf8; }
+.reservoir-boundary.danger { stroke: #fb923c; }
+.reservoir-boundary.stall { stroke: #ef4444; stroke-width: 4; }
+
+.reservoir-region-label.safe,
+.reservoir-callout-text.safe { fill: #22c55e; }
+.reservoir-region-label.reservoir { fill: #38bdf8; }
+.reservoir-region-label.danger,
+.reservoir-callout-text.danger,
+.reservoir-event-label.danger,
+.oscillation-note.danger { fill: #fb923c; }
+.reservoir-region-label.stall { fill: #ef4444; }
+
+.danger-pulse {
+  animation: danger-pulse 700ms ease-in-out infinite alternate;
 }
 
 .buffer-selected-pill {
@@ -1522,6 +1627,60 @@
   fill: #22c55e;
 }
 
+.oscillation-danger-zone {
+  fill: rgba(239, 68, 68, 0.16);
+}
+
+.oscillation-spike-band {
+  fill: rgba(251, 146, 60, 0.18);
+}
+
+.oscillation-buffer-line,
+.oscillation-quality-line,
+.rate-map-line {
+  fill: none;
+  stroke-width: 3.2;
+}
+
+.oscillation-buffer-line {
+  stroke: #38bdf8;
+}
+
+.oscillation-quality-line {
+  stroke: #22c55e;
+  stroke-dasharray: 9 6;
+}
+
+.oscillation-quality-line.harsh {
+  stroke: #fb923c;
+  filter: drop-shadow(0 0 8px rgba(251, 146, 60, 0.28));
+}
+
+.oscillation-note.safe {
+  fill: #22c55e;
+}
+
+.rate-map-reservoir-band {
+  fill: rgba(56, 189, 248, 0.16);
+  stroke: rgba(56, 189, 248, 0.34);
+}
+
+.rate-map-line.no-reservoir {
+  stroke: #fb923c;
+}
+
+.rate-map-line.with-reservoir {
+  stroke: #22c55e;
+}
+
+.rate-map-label.no-reservoir {
+  fill: #fb923c;
+}
+
+.rate-map-label.with-reservoir {
+  fill: #22c55e;
+}
+
 .buffer-explainer-grid pre {
   overflow-x: auto;
   margin: 12px 0;
@@ -1574,11 +1733,20 @@
 
   .buffer-reservoir-svg,
   .buffer-ladder-svg,
-  .buffer-comparison-svg {
+  .buffer-comparison-svg,
+  .vbr-variance-svg,
+  .reservoir-danger-svg,
+  .oscillation-svg,
+  .rate-map-svg {
     min-width: 720px;
   }
 
   .buffer-visual-card {
     overflow-x: auto;
   }
+}
+
+@keyframes danger-pulse {
+  from { filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.35)); }
+  to { filter: drop-shadow(0 0 18px rgba(239, 68, 68, 0.72)); }
 }
