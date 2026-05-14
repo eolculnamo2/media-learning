@@ -1718,6 +1718,334 @@ export function DashFragmentsPage() {
   )
 }
 
+type Variant = {
+  label: string
+  bitrateMbps: number
+  shortLabel: string
+}
+
+const abrVariants: Variant[] = [
+  { label: '360p', bitrateMbps: 0.8, shortLabel: '800 kbps' },
+  { label: '480p', bitrateMbps: 1.5, shortLabel: '1.5 Mbps' },
+  { label: '720p', bitrateMbps: 3, shortLabel: '3 Mbps' },
+  { label: '1080p', bitrateMbps: 6, shortLabel: '6 Mbps' },
+]
+
+function variantForBuffer(bufferSeconds: number) {
+  if (bufferSeconds < 5) return abrVariants[0]
+  if (bufferSeconds < 12) return abrVariants[1]
+  if (bufferSeconds < 20) return abrVariants[2]
+  return abrVariants[3]
+}
+
+function BufferReservoirViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [throughputMbps, setThroughputMbps] = useState(4)
+  const [bitrateMbps, setBitrateMbps] = useState(3)
+  const [playbackRate, setPlaybackRate] = useState(1)
+  const [startingBufferSeconds, setStartingBufferSeconds] = useState(12)
+  const [bufferSeconds, setBufferSeconds] = useState(startingBufferSeconds)
+  const [simTimeSeconds, setSimTimeSeconds] = useState(0)
+  const [isRunning, setIsRunning] = useState(true)
+
+  const maxBufferSeconds = 30
+  const mediaSecondsDownloadedPerSecond = throughputMbps / bitrateMbps
+  const netBufferChange = mediaSecondsDownloadedPerSecond - playbackRate
+  const isRebuffering = bufferSeconds <= 0.05 && netBufferChange <= 0
+
+  useEffect(() => {
+    if (!isRunning) return
+
+    const interval = window.setInterval(() => {
+      setBufferSeconds((currentBuffer) => Math.max(0, Math.min(maxBufferSeconds, currentBuffer + netBufferChange * 0.25)))
+      setSimTimeSeconds((currentTime) => currentTime + 0.25)
+    }, 250)
+
+    return () => window.clearInterval(interval)
+  }, [isRunning, netBufferChange])
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+
+    const width = svgElement.clientWidth || 680
+    const height = 390
+    const margin = { top: 28, right: 34, bottom: 44, left: 42 }
+    const tankWidth = Math.min(230, width * 0.34)
+    const tankHeight = 285
+    const tankX = margin.left + 32
+    const tankY = margin.top + 24
+    const fillScale = d3.scaleLinear().domain([0, maxBufferSeconds]).range([0, tankHeight]).clamp(true)
+    const chartX = tankX + tankWidth + 80
+    const chartWidth = Math.max(220, width - chartX - margin.right)
+    const y = d3.scaleLinear().domain([0, maxBufferSeconds]).range([tankY + tankHeight, tankY]).clamp(true)
+
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    const defs = svg.append('defs')
+    const fillGradient = defs.append('linearGradient').attr('id', 'buffer-tank-fill').attr('x1', '0').attr('x2', '0').attr('y1', '1').attr('y2', '0')
+    fillGradient.append('stop').attr('offset', '0%').attr('stop-color', '#ef4444')
+    fillGradient.append('stop').attr('offset', '42%').attr('stop-color', '#f59e0b')
+    fillGradient.append('stop').attr('offset', '100%').attr('stop-color', '#22c55e')
+
+    svg.append('rect').attr('x', tankX).attr('y', tankY).attr('width', tankWidth).attr('height', tankHeight).attr('rx', 22).attr('class', 'buffer-tank-shell')
+    svg.append('rect').attr('x', tankX + 10).attr('y', y(5)).attr('width', tankWidth - 20).attr('height', fillScale(5)).attr('class', 'buffer-danger-band')
+    svg.append('rect').attr('x', tankX + 10).attr('y', y(20)).attr('width', tankWidth - 20).attr('height', fillScale(10)).attr('class', 'buffer-safe-band')
+
+    svg.append('text').attr('x', tankX + tankWidth + 14).attr('y', y(5)).attr('class', 'buffer-threshold-label').text('danger < 5s')
+    svg.append('text').attr('x', tankX + tankWidth + 14).attr('y', y(20)).attr('class', 'buffer-threshold-label').text('healthy > 20s')
+
+    const fillHeight = fillScale(bufferSeconds)
+    svg
+      .append('rect')
+      .attr('x', tankX + 18)
+      .attr('width', tankWidth - 36)
+      .attr('rx', 14)
+      .attr('fill', 'url(#buffer-tank-fill)')
+      .attr('y', tankY + tankHeight)
+      .attr('height', 0)
+      .transition()
+      .duration(210)
+      .attr('y', tankY + tankHeight - fillHeight)
+      .attr('height', fillHeight)
+
+    svg.append('rect').attr('x', tankX + 18).attr('y', tankY + 12).attr('width', tankWidth - 36).attr('height', tankHeight - 24).attr('rx', 14).attr('class', 'buffer-tank-glass')
+    svg.append('text').attr('x', tankX + tankWidth / 2).attr('y', tankY + tankHeight / 2 - 8).attr('class', 'buffer-tank-number').text(`${bufferSeconds.toFixed(1)}s`)
+    svg.append('text').attr('x', tankX + tankWidth / 2).attr('y', tankY + tankHeight / 2 + 22).attr('class', 'buffer-tank-caption').text('playable media ahead')
+
+    const statusText = isRebuffering ? 'REBUFFER: playback has caught the buffer' : netBufferChange >= 0 ? 'buffer filling' : 'buffer draining'
+    svg.append('text').attr('x', chartX).attr('y', tankY + 14).attr('class', isRebuffering ? 'buffer-status danger' : 'buffer-status').text(statusText)
+    svg.append('text').attr('x', chartX).attr('y', tankY + 44).attr('class', 'buffer-formula').text(`net change: ${netBufferChange >= 0 ? '+' : ''}${netBufferChange.toFixed(2)} buffer seconds / second`)
+    svg.append('text').attr('x', chartX).attr('y', tankY + 72).attr('class', 'buffer-formula').text(`download adds ${mediaSecondsDownloadedPerSecond.toFixed(2)}s media while playback consumes ${playbackRate.toFixed(2)}s`)
+
+    const axis = d3.axisLeft(y).ticks(5).tickFormat((value) => `${value}s`)
+    svg.append('g').attr('transform', `translate(${chartX + chartWidth},0)`).attr('class', 'buffer-axis').call(axis)
+    svg.append('line').attr('x1', chartX).attr('x2', chartX + chartWidth).attr('y1', y(bufferSeconds)).attr('y2', y(bufferSeconds)).attr('class', 'buffer-current-line')
+    svg.append('circle').attr('cx', chartX + chartWidth * 0.22).attr('cy', y(bufferSeconds)).attr('r', 9).attr('class', isRebuffering ? 'buffer-current-dot danger' : 'buffer-current-dot')
+    svg.append('text').attr('x', chartX).attr('y', tankY + tankHeight + 30).attr('class', 'buffer-time-label').text(`simulated time: ${simTimeSeconds.toFixed(1)}s`)
+  }, [bufferSeconds, isRebuffering, maxBufferSeconds, mediaSecondsDownloadedPerSecond, netBufferChange, playbackRate, simTimeSeconds])
+
+  return (
+    <section className="buffer-visual-card" aria-labelledby="reservoir-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">Interactive model</p>
+        <h2 id="reservoir-title">Buffer reservoir</h2>
+        <p>The tank is measured in seconds of playable media. If downloads add media faster than playback consumes it, the tank fills. If not, it drains toward a stall.</p>
+      </div>
+      <div className="buffer-control-grid">
+        <label>Network throughput <strong>{throughputMbps.toFixed(1)} Mbps</strong><input type="range" min="0.5" max="10" step="0.1" value={throughputMbps} onChange={(event) => setThroughputMbps(Number(event.target.value))} /></label>
+        <label>Selected video bitrate <strong>{bitrateMbps.toFixed(1)} Mbps</strong><input type="range" min="0.5" max="8" step="0.1" value={bitrateMbps} onChange={(event) => setBitrateMbps(Number(event.target.value))} /></label>
+        <label>Playback rate <strong>{playbackRate.toFixed(1)}x</strong><input type="range" min="0.5" max="2" step="0.1" value={playbackRate} onChange={(event) => setPlaybackRate(Number(event.target.value))} /></label>
+        <label>Starting buffer <strong>{startingBufferSeconds.toFixed(0)}s</strong><input type="range" min="0" max="30" step="1" value={startingBufferSeconds} onChange={(event) => { const nextBuffer = Number(event.target.value); setStartingBufferSeconds(nextBuffer); setBufferSeconds(nextBuffer); setSimTimeSeconds(0) }} /></label>
+      </div>
+      <div className="buffer-actions">
+        <button type="button" onClick={() => setIsRunning((current) => !current)}>{isRunning ? 'Pause' : 'Resume'}</button>
+        <button type="button" onClick={() => { setBufferSeconds(startingBufferSeconds); setSimTimeSeconds(0) }}>Reset</button>
+      </div>
+      <svg ref={svgRef} className="buffer-reservoir-svg" role="img" aria-label="Animated buffer reservoir simulation" />
+    </section>
+  )
+}
+
+function BufferLadderViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [currentBuffer, setCurrentBuffer] = useState(14)
+  const selectedVariant = variantForBuffer(currentBuffer)
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+
+    const width = svgElement.clientWidth || 820
+    const height = 330
+    const margin = { top: 34, right: 30, bottom: 58, left: 76 }
+    const x = d3.scaleLinear().domain([0, 30]).range([margin.left, width - margin.right]).clamp(true)
+    const y = d3.scaleBand<string>().domain(abrVariants.map((variant) => variant.label)).range([height - margin.bottom, margin.top]).padding(0.24)
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    svg.append('g').attr('transform', `translate(0,${height - margin.bottom})`).attr('class', 'buffer-axis').call(d3.axisBottom(x).ticks(6).tickFormat((value) => `${value}s`))
+    svg.append('g').attr('transform', `translate(${margin.left},0)`).attr('class', 'buffer-axis').call(d3.axisLeft(y))
+
+    const thresholds = [5, 12, 20]
+    svg.selectAll('.buffer-threshold-line').data(thresholds).join('line').attr('class', 'buffer-threshold-line').attr('x1', (threshold) => x(threshold)).attr('x2', (threshold) => x(threshold)).attr('y1', margin.top - 10).attr('y2', height - margin.bottom + 12)
+    svg.selectAll('.buffer-threshold-text').data([{ value: 5, label: 'lower reservoir' }, { value: 20, label: 'upper reservoir' }]).join('text').attr('class', 'buffer-threshold-text').attr('x', (threshold) => x(threshold.value) + 6).attr('y', margin.top - 14).text((threshold) => threshold.label)
+
+    svg.selectAll('.buffer-step-zone').data(abrVariants).join('rect').attr('class', (variant) => `buffer-step-zone ${variant.label === selectedVariant.label ? 'is-selected' : ''}`).attr('x', (_variant, index) => x([0, 5, 12, 20][index])).attr('y', (variant) => y(variant.label) ?? 0).attr('width', (_variant, index) => x([5, 12, 20, 30][index]) - x([0, 5, 12, 20][index])).attr('height', y.bandwidth()).attr('rx', 12)
+
+    svg.selectAll('.buffer-variant-label').data(abrVariants).join('text').attr('class', (variant) => `buffer-variant-label ${variant.label === selectedVariant.label ? 'is-selected' : ''}`).attr('x', width - margin.right - 10).attr('y', (variant) => (y(variant.label) ?? 0) + y.bandwidth() / 2 + 5).text((variant) => `${variant.label} - ${variant.shortLabel}`)
+
+    const marker = svg.append('g').attr('class', 'buffer-marker').attr('transform', `translate(${x(currentBuffer)},0)`).style('cursor', 'grab')
+    marker.append('line').attr('y1', margin.top - 18).attr('y2', height - margin.bottom + 20)
+    marker.append('circle').attr('cy', margin.top - 18).attr('r', 11)
+    marker.append('text').attr('y', height - margin.bottom + 42).text(`${currentBuffer.toFixed(1)}s buffer`)
+
+    const drag = d3.drag<SVGGElement, unknown>().on('drag', (event) => {
+      setCurrentBuffer(Number(x.invert(event.x).toFixed(1)))
+    })
+
+    marker.call(drag)
+  }, [currentBuffer, selectedVariant.label])
+
+  return (
+    <section className="buffer-visual-card" aria-labelledby="ladder-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">Drag the marker</p>
+        <h2 id="ladder-title">Bitrate ladder controlled by buffer</h2>
+        <p>Below the lower reservoir, the player protects playback with the lowest representation. Above the upper reservoir, it can spend buffer on better quality.</p>
+      </div>
+      <div className="buffer-selected-pill">Selected: <strong>{selectedVariant.label} - {selectedVariant.shortLabel}</strong></div>
+      <svg ref={svgRef} className="buffer-ladder-svg" role="img" aria-label="Draggable buffer-based bitrate ladder" />
+    </section>
+  )
+}
+
+function DecisionComparisonViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+
+    const width = svgElement.clientWidth || 900
+    const height = 360
+    const panelGap = 44
+    const panelWidth = (width - panelGap - 56) / 2
+    const margin = { top: 42, right: 20, bottom: 44, left: 46 }
+    const samples = d3.range(18).map((index) => ({
+      t: index,
+      throughput: [2.1, 2.6, 6.8, 3.3, 7.4, 2.8, 2.4, 5.9, 4.8, 8.2, 3.1, 2.7, 6.4, 3.8, 7.1, 2.9, 4.2, 3.4][index],
+      buffer: [14, 14.6, 15.2, 14.8, 15.7, 15.1, 14.5, 15.2, 15.8, 16.9, 16.1, 15.4, 16.0, 16.1, 17.0, 16.4, 16.5, 16.2][index],
+    }))
+    const throughputChoice = samples.map((sample) => ({ ...sample, choice: abrVariants.filter((variant) => variant.bitrateMbps < sample.throughput * 0.82).at(-1)?.bitrateMbps ?? 0.8 }))
+    const bufferChoice = samples.map((sample) => ({ ...sample, choice: variantForBuffer(sample.buffer).bitrateMbps }))
+
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    const drawPanel = (xOffset: number, title: string, mode: 'throughput' | 'buffer') => {
+      const x = d3.scaleLinear().domain([0, samples.length - 1]).range([xOffset + margin.left, xOffset + panelWidth - margin.right])
+      const y = d3.scaleLinear().domain([0, mode === 'throughput' ? 9 : 24]).range([height - margin.bottom, margin.top])
+      const choiceY = d3.scaleLinear().domain([0, 7]).range([height - margin.bottom, margin.top])
+      const data = mode === 'throughput' ? throughputChoice : bufferChoice
+      const primaryLine = d3.line<(typeof data)[number]>().x((sample) => x(sample.t)).y((sample) => y(mode === 'throughput' ? sample.throughput : sample.buffer)).curve(mode === 'throughput' ? d3.curveLinear : d3.curveMonotoneX)
+      const choiceLine = d3.line<(typeof data)[number]>().x((sample) => x(sample.t)).y((sample) => choiceY(sample.choice)).curve(d3.curveStepAfter)
+
+      svg.append('text').attr('x', xOffset + margin.left).attr('y', 22).attr('class', 'buffer-panel-title').text(title)
+      svg.append('g').attr('transform', `translate(0,${height - margin.bottom})`).attr('class', 'buffer-axis').call(d3.axisBottom(x).ticks(4).tickFormat((value) => `seg ${Number(value) + 1}`))
+      svg.append('g').attr('transform', `translate(${xOffset + margin.left},0)`).attr('class', 'buffer-axis').call(d3.axisLeft(y).ticks(5))
+      svg.append('path').datum(data).attr('class', mode === 'throughput' ? 'comparison-noisy-line' : 'comparison-buffer-line').attr('d', primaryLine)
+      svg.append('path').datum(data).attr('class', 'comparison-choice-line').attr('d', choiceLine)
+      svg.selectAll(`.comparison-dot-${mode}`).data(data).join('circle').attr('class', `comparison-dot comparison-dot-${mode}`).attr('cx', (sample) => x(sample.t)).attr('cy', (sample) => y(mode === 'throughput' ? sample.throughput : sample.buffer)).attr('r', 3.8)
+      svg.append('text').attr('x', xOffset + panelWidth - margin.right).attr('y', margin.top + 16).attr('class', 'comparison-legend-text').attr('text-anchor', 'end').text(mode === 'throughput' ? 'network samples' : 'buffer seconds')
+      svg.append('text').attr('x', xOffset + panelWidth - margin.right).attr('y', margin.top + 38).attr('class', 'comparison-legend-text choice').attr('text-anchor', 'end').text('selected bitrate')
+    }
+
+    drawPanel(0, 'Throughput-based: chases noisy estimates', 'throughput')
+    drawPanel(panelWidth + panelGap, 'Buffer-based: reacts to playback risk', 'buffer')
+  }, [])
+
+  return (
+    <section className="buffer-visual-card" aria-labelledby="comparison-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">Decision comparison</p>
+        <h2 id="comparison-title">Noisy throughput vs slower buffer state</h2>
+        <p>Throughput samples can jump segment by segment. Buffer moves more slowly and is directly tied to the failure mode the player is trying to avoid.</p>
+      </div>
+      <svg ref={svgRef} className="buffer-comparison-svg" role="img" aria-label="Throughput-based and buffer-based ABR decision comparison" />
+    </section>
+  )
+}
+
+export function BufferAbrPage() {
+  return (
+    <VizShell
+      eyebrow="Study guide"
+      title="Using the Buffer to Avoid Rebuffers"
+      intro="A practical React + D3 guide to the Netflix paper's core idea: adaptive bitrate logic can directly observe and control playback buffer instead of leaning primarily on guessed network capacity."
+      cardClassName="buffer-study-card"
+      pageClassName="buffer-study-page"
+    >
+      <div className="buffer-hero-grid">
+        <section>
+          <h2>The ABR problem</h2>
+          <p>A streaming player chooses video quality one segment at a time. Higher quality improves visual experience, but it costs more bits and takes longer to download.</p>
+          <p>If the player chooses too high, a segment may not arrive before playback reaches the end of buffered media. The result is rebuffering, which is usually worse for QoE than briefly lowering quality.</p>
+        </section>
+        <section>
+          <h2>Traditional throughput-based ABR</h2>
+          <div className="buffer-flow">measure recent segment speed <span>→</span> estimate network capacity <span>→</span> choose highest safe bitrate</div>
+          <ul>
+            <li>Network estimates can be stale by the next segment.</li>
+            <li>Mobile and Wi-Fi networks fluctuate quickly.</li>
+            <li>TCP behavior is bursty, especially over short requests.</li>
+            <li>Short segment downloads may not reveal true capacity.</li>
+            <li>Throughput spikes can trigger overconfident upgrades.</li>
+          </ul>
+        </section>
+      </div>
+
+      <div className="buffer-paper-callout">
+        <strong>"This paper argues that we should do away with estimating network capacity, and instead directly observe and control the playback buffer."</strong>
+        <p>The player does not actually care whether its bandwidth estimate is perfect. It cares whether playback will stall. The buffer is the most direct signal of playback safety.</p>
+      </div>
+
+      <section className="buffer-explainer-section">
+        <h2>Buffer-based ABR</h2>
+        <div className="buffer-flow">observe buffer occupancy <span>→</span> map buffer level to bitrate <span>→</span> keep away from empty <span>→</span> spend buffer only when healthy</div>
+        <p>Buffer occupancy is measured in seconds of playable media. Low buffer means danger. High buffer means safety. Unlike a future bandwidth estimate, buffer is an observable state variable the player can directly control through its quality choices.</p>
+      </section>
+
+      <BufferReservoirViz />
+      <BufferLadderViz />
+      <DecisionComparisonViz />
+
+      <section className="buffer-explainer-grid">
+        <article>
+          <h2>Reservoir thresholds</h2>
+          <p>The lower reservoir is the buffer level below which the player strongly prefers low quality. The upper reservoir is the point above which it can use higher quality. Between them, quality increases gradually.</p>
+          <p>The buffer is like a fuel tank. You do not drive aggressively when the tank is nearly empty.</p>
+        </article>
+        <article>
+          <h2>Implementation sketch</h2>
+          <pre><code>{`type BufferBasedAbrInput = {
+  bufferAheadSeconds: number
+  variants: Variant[]
+}
+
+function chooseVariant(input: BufferBasedAbrInput): Variant {
+  if (input.bufferAheadSeconds < 5) {
+    return lowestVariant(input.variants)
+  }
+
+  if (input.bufferAheadSeconds > 20) {
+    return highestAffordableOrPreferredVariant(input.variants)
+  }
+
+  return mapBufferToVariant(input.bufferAheadSeconds, input.variants)
+}`}</code></pre>
+          <p>Modern players often combine buffer-based logic with bandwidth estimates, dropped-frame data, device constraints, and switch hysteresis.</p>
+        </article>
+      </section>
+
+      <section className="buffer-study-questions">
+        <h2>Study questions</h2>
+        <ul>
+          <li>Why might bandwidth estimation be unreliable?</li>
+          <li>Why does buffer occupancy represent playback safety?</li>
+          <li>Why is rebuffering usually worse than reduced quality?</li>
+          <li>What could go wrong if a player upgrades quality too quickly?</li>
+          <li>How would live streaming change the buffer-based strategy?</li>
+        </ul>
+      </section>
+    </VizShell>
+  )
+}
+
 type Responsibility = {
   job: string
   concepts: Array<{ id: string; label: string }>

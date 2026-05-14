@@ -6,6 +6,7 @@ import { edges, nodes, type Node } from './graphData'
 import {
   AbrLadderPage,
   BoxTreePage,
+  BufferAbrPage,
   ComparisonPage,
   DashFragmentsPage,
   ReadPathPage,
@@ -81,6 +82,7 @@ function Layout({ children }: { children: ReactNode }) {
           <Link to="/comparison">Progressive vs fMP4</Link>
           <Link to="/read-path">Read path</Link>
           <Link to="/abr-ladder">ABR ladder</Link>
+          <Link to="/buffer-abr">Buffer ABR</Link>
           <Link to="/responsibilities">Box jobs</Link>
           <Link to="/dash-fragments">DASH → fMP4</Link>
         </div>
@@ -153,6 +155,7 @@ function App() {
         <Route path="/comparison" element={<ComparisonPage />} />
         <Route path="/read-path" element={<ReadPathPage />} />
         <Route path="/abr-ladder" element={<AbrLadderPage />} />
+        <Route path="/buffer-abr" element={<BufferAbrPage />} />
         <Route path="/responsibilities" element={<ResponsibilityPage />} />
         <Route path="/dash-fragments" element={<DashFragmentsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
