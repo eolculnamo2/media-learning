@@ -13,6 +13,7 @@ import {
   ResponsibilityPage,
   SampleTablePage,
   TimelinePage,
+  VmafStudyPage,
 } from './Visualizations'
 
 const slugFor = (node: Node) => node.id
@@ -83,6 +84,7 @@ function Layout({ children }: { children: ReactNode }) {
           <Link to="/read-path">Read path</Link>
           <Link to="/abr-ladder">ABR ladder</Link>
           <Link to="/buffer-abr">Buffer ABR</Link>
+          <Link to="/vmaf">VMAF</Link>
           <Link to="/responsibilities">Box jobs</Link>
           <Link to="/dash-fragments">DASH → fMP4</Link>
         </div>
@@ -156,6 +158,7 @@ function App() {
         <Route path="/read-path" element={<ReadPathPage />} />
         <Route path="/abr-ladder" element={<AbrLadderPage />} />
         <Route path="/buffer-abr" element={<BufferAbrPage />} />
+        <Route path="/vmaf" element={<VmafStudyPage />} />
         <Route path="/responsibilities" element={<ResponsibilityPage />} />
         <Route path="/dash-fragments" element={<DashFragmentsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

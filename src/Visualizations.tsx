@@ -2426,6 +2426,679 @@ function chooseVariant(input) {
   )
 }
 
+const vmafFeatures = [
+  { key: 'detail', label: 'Detail preservation', value: 82, weight: 0.28, color: '#38bdf8' },
+  { key: 'structure', label: 'Structural similarity', value: 76, weight: 0.24, color: '#22c55e' },
+  { key: 'contrast', label: 'Contrast stability', value: 72, weight: 0.16, color: '#facc15' },
+  { key: 'motion', label: 'Motion/context signal', value: 68, weight: 0.18, color: '#a78bfa' },
+  { key: 'masking', label: 'Visual masking', value: 62, weight: 0.14, color: '#fb923c' },
+]
+
+type VmafArtifact = 'noise' | 'blur' | 'blockiness' | 'edge'
+
+const vmafArtifactCopy: Record<VmafArtifact, { label: string; psnr: string; note: string }> = {
+  noise: { label: 'Random noise', psnr: '31.2 dB', note: 'error is scattered; texture may hide some of it' },
+  blur: { label: 'Blur', psnr: '30.9 dB', note: 'many pixels move slightly toward their neighbors, so edges lose bite' },
+  blockiness: { label: 'Blockiness', psnr: '31.0 dB', note: 'grid-shaped errors are visually organized and easy to notice' },
+  edge: { label: 'Edge damage', psnr: '31.1 dB', note: 'same-ish error budget, but spent on structure humans care about' },
+}
+
+function referencePixel(row: number, col: number, grid: number) {
+  const gradient = 52 + col * 9 + row * 4
+  const edgeBoost = col > grid * 0.52 ? 62 : 0
+  const detail = ((row + col) % 5 === 0 ? 18 : 0) + (row > 9 && col < 6 ? 22 : 0)
+  return Math.max(0, Math.min(255, gradient + edgeBoost + detail))
+}
+
+function distortedPixel(base: number, row: number, col: number, grid: number, artifact: VmafArtifact) {
+  if (artifact === 'noise') return Math.max(0, Math.min(255, base + (((row * 13 + col * 17) % 7) - 3) * 11))
+  if (artifact === 'blur') return Math.max(0, Math.min(255, base * 0.74 + referencePixel(Math.max(0, row - 1), Math.max(0, col - 1), grid) * 0.26))
+  if (artifact === 'blockiness') return Math.max(0, Math.min(255, Math.round(base / 42) * 42 + ((Math.floor(row / 4) + Math.floor(col / 4)) % 2) * 12))
+  const nearEdge = Math.abs(col - Math.floor(grid * 0.52)) <= 1 || (row === 9 && col > 4)
+  return Math.max(0, Math.min(255, base + (nearEdge ? (row + col) % 2 === 0 ? -46 : 46 : 3)))
+}
+
+function VmafPixelProblemViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [artifact, setArtifact] = useState<VmafArtifact>('blockiness')
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+
+    const width = svgElement.clientWidth || 940
+    const height = 500
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    const grid = 16
+    const cell = Math.min(18, (width / 2 - 120) / grid)
+    const y0 = 96
+    const panels = [
+      { id: 'reference', title: 'Reference frame', x: 56 },
+      { id: 'distorted', title: `Distorted: ${vmafArtifactCopy[artifact].label}`, x: width / 2 + 38 },
+    ]
+    const cells = d3.range(grid * grid).map((index) => {
+        const row = Math.floor(index / grid)
+        const col = index % grid
+      const ref = referencePixel(row, col, grid)
+      const dist = distortedPixel(ref, row, col, grid, artifact)
+      return { row, col, ref, dist, error: Math.abs(ref - dist) }
+    })
+
+    svg.append('text').attr('x', width / 2).attr('y', 34).attr('class', 'vmaf-viz-title').attr('text-anchor', 'middle').text('PSNR asks: how numerically different are these pixels?')
+    svg.append('text').attr('x', width / 2).attr('y', 62).attr('class', 'vmaf-formula').attr('text-anchor', 'middle').text('PSNR = 10 log10(MAX² / MSE)')
+
+    panels.forEach((panel) => {
+      svg.append('text').attr('x', panel.x).attr('y', 82).attr('class', 'vmaf-panel-title').text(panel.title)
+      const g = svg.append('g').attr('transform', `translate(${panel.x},${y0})`)
+      g.selectAll('rect')
+        .data(cells)
+        .join('rect')
+        .attr('x', (d) => d.col * cell)
+        .attr('y', (d) => d.row * cell)
+        .attr('width', cell - 1)
+        .attr('height', cell - 1)
+        .attr('rx', 2)
+        .attr('fill', (d) => `rgb(${panel.id === 'reference' ? d.ref : d.dist}, ${panel.id === 'reference' ? d.ref : d.dist}, ${panel.id === 'reference' ? d.ref : d.dist})`)
+        .attr('stroke', (d) => panel.id === 'distorted' && d.error > 30 ? '#fb923c' : 'rgba(255,255,255,0.08)')
+        .append('title')
+        .text((d) => panel.id === 'reference' ? `reference pixel ${d.ref.toFixed(0)}` : `distorted pixel ${d.dist.toFixed(0)}, absolute error ${d.error.toFixed(0)}`)
+
+      if (panel.id === 'distorted' && artifact === 'blockiness') {
+        d3.range(0, grid + 1, 4).forEach((tick) => {
+          g.append('line').attr('x1', tick * cell).attr('x2', tick * cell).attr('y1', 0).attr('y2', grid * cell).attr('class', 'vmaf-artifact-edge')
+          g.append('line').attr('x1', 0).attr('x2', grid * cell).attr('y1', tick * cell).attr('y2', tick * cell).attr('class', 'vmaf-artifact-edge')
+        })
+      }
+      if (panel.id === 'distorted' && artifact === 'edge') {
+        g.append('line').attr('x1', Math.floor(grid * 0.52) * cell).attr('x2', Math.floor(grid * 0.52) * cell).attr('y1', 0).attr('y2', grid * cell).attr('class', 'vmaf-artifact-edge')
+      }
+    })
+
+    const mseX = 58
+    const baseY = y0 + grid * cell + 56
+    const mse = cells.reduce((sum, d) => sum + d.error ** 2, 0) / cells.length
+    svg.append('text').attr('x', mseX).attr('y', baseY).attr('class', 'vmaf-panel-title').text(`MSE: ${mse.toFixed(0)} average squared pixel error`)
+    svg.append('text').attr('x', mseX).attr('y', baseY + 26).attr('class', 'vmaf-small-label').text(`Displayed PSNR: ${vmafArtifactCopy[artifact].psnr} (similar range across artifact types)`)
+    svg.append('text').attr('x', mseX).attr('y', baseY + 52).attr('class', 'vmaf-note-text').text(vmafArtifactCopy[artifact].note)
+  }, [artifact])
+
+  return (
+    <section className="vmaf-visual-card" aria-labelledby="vmaf-pixel-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">The Problem With Pixel Metrics</p>
+        <h2 id="vmaf-pixel-title">PSNR is useful pixel-error math before it is a bad perceptual judge</h2>
+        <p>PSNR means Peak Signal-to-Noise Ratio. For video work, think of it as a compact score for how numerically different a reference image and distorted image are. It starts with MSE, or Mean Squared Error: subtract corresponding pixels, square the errors so large misses hurt more, then average them.</p>
+        <p>The logarithm turns a huge error ratio into a manageable decibel score. Higher PSNR generally means lower pixel error. But two frames can have similar PSNR while looking very different, because PSNR does not know whether the error landed in random texture, on a face, on an edge, or in codec-shaped blocks.</p>
+      </div>
+      <div className="vmaf-chip-row" aria-label="Artifact selector">
+        {(Object.keys(vmafArtifactCopy) as VmafArtifact[]).map((key) => (
+          <button key={key} type="button" className={artifact === key ? 'is-active' : ''} onClick={() => setArtifact(key)}>{vmafArtifactCopy[key].label}</button>
+        ))}
+      </div>
+      <svg ref={svgRef} className="vmaf-tall-svg" role="img" aria-label="Interactive PSNR artifact grid comparing reference and distorted images" />
+      <p className="buffer-lesson-line">PSNR measures numerical fidelity, not perceptual fidelity.</p>
+    </section>
+  )
+}
+
+function VmafSsimViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [showEdges, setShowEdges] = useState(true)
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+    const width = svgElement.clientWidth || 940
+    const height = 430
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+    const grid = 14
+    const cell = Math.min(14, (width - 180) / 48)
+    const panels = [
+      { id: 'original', title: 'Original', psnr: '-', ssim: '1.00', x: 54, transform: (v: number, _r: number, _c: number) => v },
+      { id: 'blurred', title: 'Blurred', psnr: '32.0 dB', ssim: '0.72', x: width / 3 + 24, transform: (v: number, r: number, c: number) => v * 0.7 + referencePixel(Math.max(0, r - 1), Math.max(0, c - 1), grid) * 0.3 },
+      { id: 'noisy', title: 'Noisy', psnr: '30.8 dB', ssim: '0.88', x: width * 2 / 3 - 6, transform: (v: number, r: number, c: number) => Math.max(0, Math.min(255, v + (((r * 7 + c * 11) % 5) - 2) * 14)) },
+    ]
+    svg.append('text').attr('x', width / 2).attr('y', 34).attr('text-anchor', 'middle').attr('class', 'vmaf-viz-title').text('SSIM asks whether luminance, contrast, and structure survive')
+    panels.forEach((panel) => {
+      const values = d3.range(grid * grid).map((index) => {
+        const row = Math.floor(index / grid)
+        const col = index % grid
+        const base = referencePixel(row, col, grid)
+        const value = Math.max(0, Math.min(255, panel.transform(base, row, col)))
+        const edge = Math.abs(referencePixel(row, Math.min(grid - 1, col + 1), grid) - base) > 34 || Math.abs(referencePixel(Math.min(grid - 1, row + 1), col, grid) - base) > 34
+        return { row, col, value, edge }
+      })
+      svg.append('text').attr('x', panel.x).attr('y', 78).attr('class', 'vmaf-panel-title').text(panel.title)
+      const g = svg.append('g').attr('transform', `translate(${panel.x},96)`)
+      g.selectAll('rect')
+        .data(values)
+        .join('rect')
+        .attr('x', (d) => d.col * cell)
+        .attr('y', (d) => d.row * cell)
+        .attr('width', cell - 1)
+        .attr('height', cell - 1)
+        .attr('rx', 2)
+        .attr('fill', (d) => `rgb(${d.value}, ${d.value}, ${d.value})`)
+      if (showEdges) {
+        g.selectAll('circle').data(values.filter((d) => d.edge)).join('circle').attr('cx', (d) => d.col * cell + cell / 2).attr('cy', (d) => d.row * cell + cell / 2).attr('r', cell * 0.23).attr('class', panel.id === 'blurred' ? 'vmaf-edge-dot weak' : 'vmaf-edge-dot')
+      }
+      svg.append('text').attr('x', panel.x).attr('y', 96 + grid * cell + 32).attr('class', 'vmaf-small-label').text(`PSNR: ${panel.psnr}`)
+      svg.append('text').attr('x', panel.x).attr('y', 96 + grid * cell + 56).attr('class', panel.id === 'blurred' ? 'vmaf-ssim-warning' : 'vmaf-ssim-good').text(`SSIM: ${panel.ssim}`)
+    })
+    svg.append('text').attr('x', 54).attr('y', height - 42).attr('class', 'vmaf-note-text').text('The blurred image can have respectable pixel error while damaging high-value structure. SSIM penalizes that structural loss more directly than PSNR.')
+  }, [showEdges])
+
+  return (
+    <section className="vmaf-visual-card" aria-labelledby="vmaf-ssim-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">What SSIM Tried To Fix</p>
+        <h2 id="vmaf-ssim-title">SSIM moves from pure pixel accuracy toward perceptual structure</h2>
+        <p>SSIM means Structural Similarity Index. It compares local luminance, contrast, and structure rather than treating every pixel difference as equally meaningful. That shift matters because humans are very sensitive to preserved edges, shapes, and patterns.</p>
+        <p>Conceptually: if exact pixels drift but the structure remains legible, the image may still look good. If edges smear or block boundaries appear, the experience can feel worse than the raw error number suggests.</p>
+      </div>
+      <div className="buffer-actions"><button type="button" onClick={() => setShowEdges((current) => !current)}>{showEdges ? 'Hide' : 'Show'} structural overlay</button></div>
+      <svg ref={svgRef} className="vmaf-wide-svg" role="img" aria-label="SSIM comparison of original, blurred, and noisy images with structural overlays" />
+      <p className="buffer-lesson-line">SSIM moves from pure pixel accuracy toward perceptual structure.</p>
+    </section>
+  )
+}
+
+function VmafEvolutionTimelineViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const steps = useMemo(() => [
+    { label: 'PSNR', note: 'raw pixel error', color: '#fb923c' },
+    { label: 'SSIM', note: 'local structure', color: '#facc15' },
+    { label: 'perceptual features', note: 'multiple visual clues', color: '#38bdf8' },
+    { label: 'learned fusion', note: 'trained combination', color: '#a78bfa' },
+    { label: 'predicted human quality', note: 'VMAF-like score', color: '#22c55e' },
+  ], [])
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+    const width = svgElement.clientWidth || 940
+    const height = 300
+    const margin = { left: 72, right: 72 }
+    const x = d3.scalePoint<string>().domain(steps.map((step) => step.label)).range([margin.left, width - margin.right]).padding(0.5)
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+
+    svg.append('line').attr('x1', margin.left).attr('x2', width - margin.right).attr('y1', 126).attr('y2', 126).attr('class', 'vmaf-timeline-line')
+    steps.forEach((step, index) => {
+      const cx = x(step.label) ?? 0
+      svg.append('circle').attr('cx', cx).attr('cy', 126).attr('r', 26 + index * 2).attr('fill', step.color).attr('class', 'vmaf-timeline-node')
+      svg.append('text').attr('x', cx).attr('y', 132).attr('text-anchor', 'middle').attr('class', 'vmaf-timeline-index').text(`${index + 1}`)
+      svg.append('text').attr('x', cx).attr('y', 196).attr('text-anchor', 'middle').attr('class', 'vmaf-panel-title').text(step.label)
+      svg.append('text').attr('x', cx).attr('y', 220).attr('text-anchor', 'middle').attr('class', 'vmaf-note-text').text(step.note)
+      if (index < steps.length - 1) svg.append('text').attr('x', ((x(step.label) ?? 0) + (x(steps[index + 1].label) ?? 0)) / 2).attr('y', 96).attr('text-anchor', 'middle').attr('class', 'vmaf-plus-label').text('+ richer perception')
+    })
+  }, [steps])
+
+  return <svg ref={svgRef} className="vmaf-mid-svg" role="img" aria-label="Evolution from PSNR to SSIM to VMAF timeline" />
+}
+
+function VmafPipelineViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+    const width = svgElement.clientWidth || 940
+    const height = 390
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+    const boxes = [
+      { id: 'ref', label: 'Reference video', sub: 'pristine source', x: 44, y: 78, w: 170, h: 82, cls: 'source' },
+      { id: 'dist', label: 'Distorted video', sub: 'encoded candidate', x: 44, y: 214, w: 170, h: 82, cls: 'distorted' },
+      { id: 'features', label: 'Feature extractors', sub: 'detail, structure, contrast, motion/context', x: width * 0.35, y: 132, w: 210, h: 116, cls: 'features' },
+      { id: 'fusion', label: 'Learned fusion model', sub: 'trained on human ratings', x: width * 0.64, y: 132, w: 190, h: 116, cls: 'fusion' },
+      { id: 'score', label: 'VMAF score', sub: 'predicted perceptual quality', x: width - 180, y: 150, w: 142, h: 80, cls: 'score' },
+    ]
+    const arrow = (x1: number, y1: number, x2: number, y2: number, cls = 'vmaf-flow-arrow') => svg.append('path').attr('d', `M${x1},${y1} C${x1 + 55},${y1} ${x2 - 55},${y2} ${x2},${y2}`).attr('class', cls)
+    boxes.forEach((box) => {
+      const g = svg.append('g')
+      g.append('rect').attr('x', box.x).attr('y', box.y).attr('width', box.w).attr('height', box.h).attr('rx', 18).attr('class', `vmaf-flow-box ${box.cls}`)
+      g.append('text').attr('x', box.x + 16).attr('y', box.y + 34).attr('class', 'vmaf-flow-title').text(box.label)
+      g.append('text').attr('x', box.x + 16).attr('y', box.y + 59).attr('class', 'vmaf-note-text').text(box.sub)
+    })
+    arrow(214, 119, width * 0.35, 168)
+    arrow(214, 255, width * 0.35, 214)
+    arrow(width * 0.35 + 210, 190, width * 0.64, 190)
+    arrow(width * 0.64 + 190, 190, width - 180, 190)
+    svg.selectAll('.vmaf-feature-chip').data(vmafFeatures).join('text').attr('x', width * 0.35 + 18).attr('y', (_d, i) => 172 + i * 15).attr('class', 'vmaf-feature-chip').text((d) => d.label)
+    svg.append('text').attr('x', width - 109).attr('y', 196).attr('text-anchor', 'middle').attr('class', 'vmaf-score-number').text('84.7')
+  }, [])
+
+  return <svg ref={svgRef} className="vmaf-wide-svg" role="img" aria-label="Reference and distorted videos flow through feature extraction, fusion, and VMAF score" />
+}
+
+function VmafFusionSlidersViz() {
+  const [values, setValues] = useState(() => Object.fromEntries(vmafFeatures.map((feature) => [feature.key, feature.value])) as Record<string, number>)
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const score = vmafFeatures.reduce((sum, feature) => sum + values[feature.key] * feature.weight, 0)
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+    const width = svgElement.clientWidth || 760
+    const height = 300
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+    const cx = width / 2
+    const cy = 145
+    const radius = 104
+    const arc = d3.arc<{ startAngle: number; endAngle: number; color: string }>().innerRadius(74).outerRadius(radius).cornerRadius(8)
+    let angle = -Math.PI / 2
+    const arcs = vmafFeatures.map((feature) => {
+      const span = (values[feature.key] / 100) * feature.weight * Math.PI * 2.15
+      const datum = { startAngle: angle, endAngle: angle + span, color: feature.color }
+      angle += span + 0.055
+      return datum
+    })
+    svg.selectAll('path').data(arcs).join('path').attr('d', arc).attr('transform', `translate(${cx},${cy})`).attr('fill', (d) => d.color).attr('class', 'vmaf-score-arc')
+    svg.append('circle').attr('cx', cx).attr('cy', cy).attr('r', 68).attr('class', 'vmaf-score-center')
+    svg.append('text').attr('x', cx).attr('y', cy - 4).attr('text-anchor', 'middle').attr('class', 'vmaf-score-number').text(score.toFixed(1))
+    svg.append('text').attr('x', cx).attr('y', cy + 26).attr('text-anchor', 'middle').attr('class', 'vmaf-note-text').text('illustrative fused score')
+  }, [score, values])
+
+  return (
+    <section className="vmaf-visual-card" aria-labelledby="vmaf-fusion-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">Interactive mental model</p>
+        <h2 id="vmaf-fusion-title">VMAF is feature fusion, not one magic equation</h2>
+        <p>Each slider is a simplified stand-in for a perceptual signal. A trained regression model learns how much each signal tends to matter, including combinations where one feature changes the meaning of another.</p>
+        <p><strong>Illustrative conceptual model — not the exact Netflix implementation.</strong></p>
+      </div>
+      <div className="vmaf-fusion-layout">
+        <div className="buffer-control-grid compact">
+          {vmafFeatures.map((feature) => (
+            <label key={feature.key}> {feature.label} <strong>{values[feature.key].toFixed(0)}</strong><input type="range" min="0" max="100" value={values[feature.key]} onChange={(event) => setValues((current) => ({ ...current, [feature.key]: Number(event.target.value) }))} /></label>
+          ))}
+        </div>
+        <svg ref={svgRef} className="vmaf-dial-svg" role="img" aria-label="Illustrative fused VMAF score dial" />
+      </div>
+    </section>
+  )
+}
+
+function VmafMosScatterViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+    const width = svgElement.clientWidth || 900
+    const height = 390
+    const margin = { top: 34, right: 36, bottom: 58, left: 66 }
+    const data = d3.range(34).map((i) => {
+      const prediction = 28 + i * 1.9 + Math.sin(i * 1.7) * 8
+      return { prediction, mos: Math.max(18, Math.min(96, prediction * 0.88 + 10 + Math.sin(i * 2.3) * 7)) }
+    })
+    const x = d3.scaleLinear().domain([15, 100]).range([margin.left, width - margin.right])
+    const y = d3.scaleLinear().domain([15, 100]).range([height - margin.bottom, margin.top])
+    const line = d3.line<{ x: number; y: number }>().x((d) => x(d.x)).y((d) => y(d.y))
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+    svg.append('g').attr('transform', `translate(0,${height - margin.bottom})`).attr('class', 'buffer-axis').call(d3.axisBottom(x).ticks(6))
+    svg.append('g').attr('transform', `translate(${margin.left},0)`).attr('class', 'buffer-axis').call(d3.axisLeft(y).ticks(6))
+    svg.append('path').datum([{ x: 20, y: 28 }, { x: 96, y: 94 }]).attr('class', 'vmaf-fit-line').attr('d', line)
+    svg.selectAll('circle').data(data).join('circle').attr('cx', (d) => x(d.prediction)).attr('cy', (d) => y(d.mos)).attr('r', 5.5).attr('class', 'vmaf-scatter-dot').append('title').text((d) => `prediction ${d.prediction.toFixed(1)}, human MOS ${d.mos.toFixed(1)}`)
+    svg.append('text').attr('x', width / 2).attr('y', height - 16).attr('text-anchor', 'middle').attr('class', 'buffer-time-label').text('feature-derived model prediction')
+    svg.append('text').attr('x', 18).attr('y', height / 2).attr('transform', `rotate(-90 18 ${height / 2})`).attr('text-anchor', 'middle').attr('class', 'buffer-time-label').text('human mean opinion score')
+    svg.append('text').attr('x', x(66)).attr('y', y(76)).attr('class', 'vmaf-panel-title').text('train model to follow human ratings')
+  }, [])
+
+  return <svg ref={svgRef} className="vmaf-wide-svg" role="img" aria-label="Scatterplot of model predictions versus human mean opinion scores" />
+}
+
+function VmafTrainingPipelineViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [step, setStep] = useState(4)
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+    const width = svgElement.clientWidth || 940
+    const height = 420
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+    const boxes = [
+      { title: 'Reference video', sub: 'clean source', x: 44, y: 74, color: '#22c55e', kind: 'human' },
+      { title: 'Encoded video', sub: 'candidate distortion', x: 44, y: 214, color: '#fb923c', kind: 'math' },
+      { title: 'Perceptual features', sub: 'engineer-designed measurements', x: width * 0.31, y: 144, color: '#38bdf8', kind: 'feature' },
+      { title: 'Human opinion scores', sub: 'MOS / DMOS labels', x: width * 0.55, y: 58, color: '#22c55e', kind: 'human' },
+      { title: 'SVR training', sub: 'learn feature → quality mapping', x: width * 0.56, y: 214, color: '#a78bfa', kind: 'model' },
+      { title: 'Predicted score', sub: 'approximate viewer judgment', x: width - 180, y: 150, color: '#facc15', kind: 'model' },
+    ]
+    const visible = boxes.slice(0, step + 2)
+    const arrow = (x1: number, y1: number, x2: number, y2: number) => svg.append('path').attr('d', `M${x1},${y1} C${x1 + 48},${y1} ${x2 - 48},${y2} ${x2},${y2}`).attr('class', 'vmaf-flow-arrow')
+    visible.forEach((box) => {
+      svg.append('rect').attr('x', box.x).attr('y', box.y).attr('width', 168).attr('height', 86).attr('rx', 18).attr('fill', 'transparent').attr('stroke', box.color).attr('class', `vmaf-training-box ${box.kind}`)
+      svg.append('text').attr('x', box.x + 14).attr('y', box.y + 34).attr('class', 'vmaf-flow-title').text(box.title)
+      svg.append('text').attr('x', box.x + 14).attr('y', box.y + 60).attr('class', 'vmaf-note-text').text(box.sub)
+    })
+    if (step >= 0) arrow(212, 117, width * 0.31, 170)
+    if (step >= 1) arrow(212, 257, width * 0.31, 214)
+    if (step >= 2) arrow(width * 0.31 + 168, 185, width * 0.56, 248)
+    if (step >= 3) arrow(width * 0.55 + 168, 101, width * 0.56 + 80, 214)
+    if (step >= 4) arrow(width * 0.56 + 168, 257, width - 180, 190)
+    svg.append('text').attr('x', width / 2).attr('y', height - 34).attr('text-anchor', 'middle').attr('class', 'vmaf-note-text').text('Training means fitting model parameters so feature combinations better match human ratings on example videos.')
+  }, [step])
+
+  return (
+    <section className="vmaf-visual-card" aria-labelledby="vmaf-training-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">What Does "Trained Model" Mean?</p>
+        <h2 id="vmaf-training-title">VMAF learns how perceptual features correlate with human opinion</h2>
+        <p>Humans watched encoded videos and rated quality. Engineers designed perceptual features that compare reference and distorted videos. The machine learning part learns how combinations of those features map to human quality ratings.</p>
+        <p>Classic VMAF uses Support Vector Regression, a lightweight classical ML regression model. You do not need the SVR math here: intuitively, it learns a curve from feature vectors to expected human score. This is not modern generative AI, not an LLM, and not a neural video model.</p>
+      </div>
+      <div className="buffer-control-grid compact">
+        <label>Progressive reveal <strong>step {step + 1}</strong><input type="range" min="0" max="4" step="1" value={step} onChange={(event) => setStep(Number(event.target.value))} /></label>
+      </div>
+      <svg ref={svgRef} className="vmaf-wide-svg" role="img" aria-label="Training pipeline from reference and encoded videos to features, human scores, SVR training, and predicted score" />
+      <div className="vmaf-contrast-grid">
+        <div><span className="vmaf-badge math">old equation</span><strong>Engineers manually write one equation.</strong></div>
+        <div><span className="vmaf-badge model">VMAF approach</span><strong>Engineers design perceptual features, then ML learns how to weight and combine them.</strong></div>
+      </div>
+    </section>
+  )
+}
+
+function VmafMetricGamingViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [optimization, setOptimization] = useState(55)
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+    const width = svgElement.clientWidth || 900
+    const height = 330
+    const margin = { top: 42, right: 38, bottom: 52, left: 62 }
+    const x = d3.scaleLinear().domain([0, 100]).range([margin.left, width - margin.right])
+    const y = d3.scaleLinear().domain([35, 100]).range([height - margin.bottom, margin.top])
+    const data = d3.range(0, 101, 5).map((pressure) => ({
+      pressure,
+      metric: 54 + 40 * (1 - Math.exp(-pressure / 32)),
+      human: 54 + 31 * (1 - Math.exp(-pressure / 38)) - Math.max(0, pressure - 68) * 0.45,
+    }))
+    const metricLine = d3.line<(typeof data)[number]>().x((d) => x(d.pressure)).y((d) => y(d.metric)).curve(d3.curveMonotoneX)
+    const humanLine = d3.line<(typeof data)[number]>().x((d) => x(d.pressure)).y((d) => y(d.human)).curve(d3.curveMonotoneX)
+    const selected = data.reduce((best, d) => Math.abs(d.pressure - optimization) < Math.abs(best.pressure - optimization) ? d : best, data[0])
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+    svg.append('rect').attr('x', x(68)).attr('y', margin.top).attr('width', x(100) - x(68)).attr('height', height - margin.top - margin.bottom).attr('class', 'vmaf-waste-zone')
+    svg.append('g').attr('transform', `translate(0,${height - margin.bottom})`).attr('class', 'buffer-axis').call(d3.axisBottom(x).ticks(5).tickFormat((v) => `${v}%`))
+    svg.append('g').attr('transform', `translate(${margin.left},0)`).attr('class', 'buffer-axis').call(d3.axisLeft(y).ticks(5))
+    svg.append('path').datum(data).attr('class', 'vmaf-quality-curve').attr('d', metricLine)
+    svg.append('path').datum(data).attr('class', 'vmaf-human-line').attr('d', humanLine)
+    svg.append('line').attr('x1', x(selected.pressure)).attr('x2', x(selected.pressure)).attr('y1', margin.top).attr('y2', height - margin.bottom).attr('class', 'vmaf-current-line')
+    svg.append('circle').attr('cx', x(selected.pressure)).attr('cy', y(selected.metric)).attr('r', 7).attr('class', 'vmaf-ladder-dot')
+    svg.append('circle').attr('cx', x(selected.pressure)).attr('cy', y(selected.human)).attr('r', 7).attr('class', 'vmaf-human-dot')
+    svg.append('text').attr('x', x(74)).attr('y', margin.top + 24).attr('class', 'vmaf-waste-label').text('edge case: metric keeps rising, viewers may not agree')
+    svg.append('text').attr('x', width - margin.right).attr('y', y(90)).attr('text-anchor', 'end').attr('class', 'vmaf-small-label').text('metric score')
+    svg.append('text').attr('x', width - margin.right).attr('y', y(72)).attr('text-anchor', 'end').attr('class', 'vmaf-human-label').text('human perception')
+  }, [optimization])
+
+  return (
+    <section className="vmaf-visual-card" aria-labelledby="vmaf-gaming-title">
+      <div className="buffer-card-copy">
+        <p className="eyebrow">Why Metrics Can Be Gamed</p>
+        <h2 id="vmaf-gaming-title">Optimizing for the scoreboard can diverge from optimizing for viewers</h2>
+        <p>If an encoder is tuned directly against a metric, it may discover blind spots: artifacts the metric under-penalizes, over-sharpening that inflates detail scores, or changes that help one feature while annoying humans. This is Goodhart's law in codec clothing.</p>
+      </div>
+      <div className="buffer-control-grid compact"><label>Metric optimization pressure <strong>{optimization}%</strong><input type="range" min="0" max="100" value={optimization} onChange={(event) => setOptimization(Number(event.target.value))} /></label></div>
+      <svg ref={svgRef} className="vmaf-mid-svg" role="img" aria-label="Conceptual chart showing metric optimization diverging from human perception in edge cases" />
+      <p className="buffer-lesson-line">Subjective testing still matters because every metric has blind spots.</p>
+    </section>
+  )
+}
+
+function VmafBitrateCurveViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+    const width = svgElement.clientWidth || 900
+    const height = 380
+    const margin = { top: 34, right: 42, bottom: 58, left: 64 }
+    const data = d3.range(0.6, 10.2, 0.35).map((bitrate) => ({ bitrate, quality: 32 + 62 * (1 - Math.exp(-bitrate / 2.65)) }))
+    const x = d3.scaleLinear().domain([0, 10]).range([margin.left, width - margin.right])
+    const y = d3.scaleLinear().domain([25, 100]).range([height - margin.bottom, margin.top])
+    const line = d3.line<(typeof data)[number]>().x((d) => x(d.bitrate)).y((d) => y(d.quality)).curve(d3.curveMonotoneX)
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+    svg.append('rect').attr('x', x(6.4)).attr('y', margin.top).attr('width', x(10) - x(6.4)).attr('height', height - margin.top - margin.bottom).attr('class', 'vmaf-waste-zone')
+    svg.append('g').attr('transform', `translate(0,${height - margin.bottom})`).attr('class', 'buffer-axis').call(d3.axisBottom(x).ticks(6).tickFormat((v) => `${v} Mbps`))
+    svg.append('g').attr('transform', `translate(${margin.left},0)`).attr('class', 'buffer-axis').call(d3.axisLeft(y).ticks(5))
+    svg.append('path').datum(data).attr('class', 'vmaf-quality-curve').attr('d', line)
+    svg.selectAll('circle').data([{ bitrate: 1.4, quality: 58 }, { bitrate: 3.2, quality: 77 }, { bitrate: 6.2, quality: 88 }, { bitrate: 8.8, quality: 91 }]).join('circle').attr('cx', (d) => x(d.bitrate)).attr('cy', (d) => y(d.quality)).attr('r', 7).attr('class', 'vmaf-ladder-dot')
+    svg.append('text').attr('x', x(7.9)).attr('y', margin.top + 28).attr('text-anchor', 'middle').attr('class', 'vmaf-waste-label').text('extra bitrate buys little visible improvement')
+    svg.append('text').attr('x', x(3.2)).attr('y', y(77) - 18).attr('text-anchor', 'middle').attr('class', 'vmaf-panel-title').text('useful ladder point')
+  }, [])
+
+  return <svg ref={svgRef} className="vmaf-wide-svg" role="img" aria-label="Bitrate versus VMAF quality curve with diminishing returns" />
+}
+
+function VmafRadarViz() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const axes = useMemo(() => ['Human match', 'Automation', 'No reference', 'Temporal sensitivity', 'Anti-gaming'], [])
+  const series = useMemo(() => [
+    { name: 'PSNR', color: '#fb923c', values: [34, 88, 18, 26, 38] },
+    { name: 'SSIM', color: '#facc15', values: [52, 82, 18, 35, 48] },
+    { name: 'VMAF', color: '#38bdf8', values: [78, 80, 18, 58, 54] },
+    { name: 'Human testing', color: '#22c55e', values: [96, 22, 88, 88, 86] },
+  ], [])
+
+  useEffect(() => {
+    const svgElement = svgRef.current
+    if (!svgElement) return
+    const width = svgElement.clientWidth || 900
+    const height = 460
+    const cx = width / 2
+    const cy = 226
+    const radius = 142
+    const angle = (i: number) => -Math.PI / 2 + (Math.PI * 2 * i) / axes.length
+    const point = (i: number, value: number) => [cx + Math.cos(angle(i)) * radius * value / 100, cy + Math.sin(angle(i)) * radius * value / 100]
+    const svg = d3.select(svgElement)
+    svg.selectAll('*').remove()
+    svg.attr('viewBox', `0 0 ${width} ${height}`)
+    d3.range(20, 101, 20).forEach((level) => {
+      svg.append('polygon').attr('points', axes.map((_axis, i) => point(i, level).join(',')).join(' ')).attr('class', 'vmaf-radar-ring')
+    })
+    axes.forEach((axis, i) => {
+      const [x2, y2] = point(i, 104)
+      svg.append('line').attr('x1', cx).attr('y1', cy).attr('x2', x2).attr('y2', y2).attr('class', 'vmaf-radar-axis')
+      svg.append('text').attr('x', x2).attr('y', y2).attr('text-anchor', x2 < cx - 10 ? 'end' : x2 > cx + 10 ? 'start' : 'middle').attr('class', 'vmaf-note-text').text(axis)
+    })
+    series.forEach((item) => {
+      svg.append('polygon').attr('points', item.values.map((value, i) => point(i, value).join(',')).join(' ')).attr('fill', item.color).attr('stroke', item.color).attr('class', 'vmaf-radar-shape')
+    })
+    series.forEach((item, index) => {
+      svg.append('circle').attr('cx', 54).attr('cy', 48 + index * 24).attr('r', 6).attr('fill', item.color)
+      svg.append('text').attr('x', 68).attr('y', 53 + index * 24).attr('class', 'vmaf-note-text').text(item.name)
+    })
+  }, [axes, series])
+
+  return <svg ref={svgRef} className="vmaf-radar-svg" role="img" aria-label="Radar chart comparing PSNR, SSIM, VMAF, and human testing" />
+}
+
+const keyTerms = [
+  ['full-reference metric', 'compares an encoded result against the pristine source'],
+  ['distorted video', 'the encoded or processed candidate being judged'],
+  ['reference video', 'the clean source treated as ground truth'],
+  ['feature extraction', 'turning frame comparisons into perceptual signals'],
+  ['fusion model', 'a trained combiner of multiple features'],
+  ['subjective score', 'quality rating from human viewers'],
+  ['MOS / DMOS', 'mean opinion score / difference mean opinion score'],
+  ['perceptual quality', 'how good the video appears, not just how numerically similar it is'],
+]
+
+export function VmafStudyPage() {
+  return (
+    <VizShell
+      eyebrow="Study guide"
+      title="VMAF: Perceptual Quality as a Learned Fusion Model"
+      intro="Why modern video quality measurement moved beyond pixel math."
+      cardClassName="buffer-study-card vmaf-study-card"
+      pageClassName="buffer-study-page vmaf-study-page"
+    >
+      <div className="vmaf-hero-grid">
+        <section className="vmaf-hero-copy">
+          <p className="eyebrow">Prerequisite for the VQA paper</p>
+          <h2>A metric that behaves less like a ruler and more like a trained judge</h2>
+          <p>VMAF is a full-reference video quality metric. It compares a pristine source video with a distorted encoded version, extracts perceptual features, then uses a classical trained regression model to predict what human viewers would probably rate.</p>
+          <div className="vmaf-legend-row" aria-label="Visual language legend">
+            <span className="vmaf-badge math">math metric</span>
+            <span className="vmaf-badge feature">perceptual feature</span>
+            <span className="vmaf-badge model">learned model</span>
+            <span className="vmaf-badge human">human rating</span>
+          </div>
+        </section>
+        <aside className="vmaf-key-terms" aria-label="Key terms">
+          <h2>Key terms</h2>
+          <dl>{keyTerms.map(([term, definition]) => <div key={term}><dt>{term}</dt><dd>{definition}</dd></div>)}</dl>
+        </aside>
+      </div>
+
+      <VmafPixelProblemViz />
+
+      <VmafSsimViz />
+
+      <section className="vmaf-visual-card">
+        <div className="buffer-card-copy">
+          <p className="eyebrow">Evolution</p>
+          <h2>From PSNR to SSIM to VMAF</h2>
+          <p>SSIM improved on raw error by asking whether local structure is preserved. VMAF takes another step: compute multiple perceptual signals and learn how to combine them against human opinion data.</p>
+        </div>
+        <VmafEvolutionTimelineViz />
+      </section>
+
+      <section className="vmaf-visual-card">
+        <div className="buffer-card-copy">
+          <p className="eyebrow">Mechanism</p>
+          <h2>What VMAF actually does</h2>
+          <p>VMAF is not one giant formula. It is also not modern generative AI. It is a classical machine learning regression system built around perceptual measurements.</p>
+          <ol className="vmaf-step-list">
+            <li><span className="vmaf-badge feature">step 1</span> Extract perceptual features from the reference video and distorted video.</li>
+            <li><span className="vmaf-badge feature">step 2</span> Compute measurements like detail preservation, structural similarity, contrast behavior, and motion-related information.</li>
+            <li><span className="vmaf-badge model">step 3</span> Feed the feature vector into a trained regression model.</li>
+            <li><span className="vmaf-badge human">step 4</span> Predict a score that approximates human opinion.</li>
+          </ol>
+        </div>
+        <VmafPipelineViz />
+      </section>
+
+      <VmafFusionSlidersViz />
+
+      <VmafTrainingPipelineViz />
+
+      <section className="vmaf-visual-card">
+        <div className="buffer-card-copy">
+          <p className="eyebrow">Human target</p>
+          <h2>VMAF is trained against opinion scores</h2>
+          <p>The target is not mathematical fidelity for its own sake. Training data comes from human viewer ratings such as MOS or DMOS, so the model learns a mapping from measurable features to perceived quality.</p>
+        </div>
+        <VmafMosScatterViz />
+        <p className="buffer-lesson-line">VMAF tries to predict perceived quality, not merely pixel similarity.</p>
+      </section>
+
+      <section className="vmaf-myth-grid" aria-labelledby="vmaf-not-title">
+        <article className="vmaf-visual-card">
+          <p className="eyebrow">What VMAF Is NOT</p>
+          <h2 id="vmaf-not-title">Useful does not mean magical</h2>
+          <ul>
+            <li>not a simulation of the human visual cortex</li>
+            <li>not true objective quality</li>
+            <li>not an LLM, not generative AI, and not a neural video model</li>
+            <li>not magic and not perfect</li>
+            <li>not a replacement for human review</li>
+          </ul>
+          <p><strong>VMAF is a statistical approximation of human perceptual judgment.</strong></p>
+        </article>
+        <article className="vmaf-visual-card">
+          <p className="eyebrow">Mental boundary</p>
+          <h2>What the score means</h2>
+          <p>A VMAF score is best read as: given the features this model sees, this is the quality level humans have tended to assign to similar distortions in training and validation data.</p>
+          <p>That is powerful for engineering workflows, but it still inherits the model's feature coverage, training data, and blind spots.</p>
+        </article>
+      </section>
+
+      <VmafMetricGamingViz />
+
+      <section className="vmaf-visual-card">
+        <div className="buffer-card-copy">
+          <p className="eyebrow">Encoding decisions</p>
+          <h2>Why VMAF matters for encoding</h2>
+          <p>VMAF helps compare encodes, tune codecs, build per-title ladders, evaluate variants, and identify the point where extra bitrate stops buying visible improvement.</p>
+        </div>
+        <VmafBitrateCurveViz />
+      </section>
+
+      <section className="buffer-explainer-grid">
+        <article>
+          <h2>Good at</h2>
+          <ul>
+            <li>offline full-reference encode comparison</li>
+            <li>objective-ish quality regression tests</li>
+            <li>bitrate ladder evaluation</li>
+            <li>perceptual optimization during encoding experiments</li>
+          </ul>
+        </article>
+        <article>
+          <h2>Bad at / limited by</h2>
+          <ul>
+            <li>requires a reference video</li>
+            <li>not a real-time player metric</li>
+            <li>can miss some temporal artifacts</li>
+            <li>can be gamed by optimizing directly against the metric</li>
+            <li>not a substitute for human viewing</li>
+          </ul>
+        </article>
+      </section>
+
+      <section className="vmaf-visual-card">
+        <div className="buffer-card-copy">
+          <p className="eyebrow">Tradeoffs</p>
+          <h2>VMAF sits between simple metrics and people in a room</h2>
+          <p>This chart is qualitative. It shows why VMAF is practical for encode work while still needing caution for temporal artifacts, metric gaming, and final subjective validation.</p>
+        </div>
+        <VmafRadarViz />
+      </section>
+
+      <section className="vmaf-paper-bridge">
+        <p className="eyebrow">Why this matters before the paper</p>
+        <h2>The next paper starts where classic VMAF feels incomplete</h2>
+        <p>It assumes you understand full-reference video quality assessment, feature extraction, learned fusion, subjective-score prediction, and the mostly frame/spatial-oriented flavor of classic VMAF-style thinking.</p>
+        <strong>Question it asks: can we make this stronger by adding spatiotemporal features and model fusion?</strong>
+      </section>
+
+      <section className="vmaf-summary-card">
+        <strong>PSNR measures pixel error. SSIM measures structural similarity. VMAF combines multiple perceptual signals using a trained regression model to predict how humans are likely to judge video quality.</strong>
+      </section>
+
+      <section className="vmaf-paper-bridge vmaf-next-step">
+        <p className="eyebrow">Next Step: Spatiotemporal VMAF</p>
+        <h2>What happens when frame quality alone is not enough?</h2>
+        <p>The paper asks whether video quality assessment gets stronger when spatial clues, temporal dynamics, and model fusion are integrated more deliberately.</p>
+      </section>
+    </VizShell>
+  )
+}
+
 type Responsibility = {
   job: string
   concepts: Array<{ id: string; label: string }>
