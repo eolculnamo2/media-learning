@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import './App.css'
+import { DesktopPlayerPage } from './DesktopPlayerPage'
 import { ForceGraph } from './ForceGraph'
 import { edges, nodes, type Node } from './graphData'
 import {
@@ -87,6 +88,7 @@ function Layout({ children }: { children: ReactNode }) {
           <Link to="/vmaf">VMAF</Link>
           <Link to="/responsibilities">Box jobs</Link>
           <Link to="/dash-fragments">DASH → fMP4</Link>
+          <Link to="/desktop-player">Desktop player</Link>
         </div>
       </nav>
       {children}
@@ -161,6 +163,7 @@ function App() {
         <Route path="/vmaf" element={<VmafStudyPage />} />
         <Route path="/responsibilities" element={<ResponsibilityPage />} />
         <Route path="/dash-fragments" element={<DashFragmentsPage />} />
+        <Route path="/desktop-player" element={<DesktopPlayerPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
