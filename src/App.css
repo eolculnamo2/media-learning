@@ -2325,6 +2325,18 @@
   color: var(--text-h);
 }
 
+.desktop-box-link {
+  color: var(--accent);
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.desktop-box-link:hover {
+  color: #f59e0b;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .desktop-svg {
   display: block;
   width: 100%;
