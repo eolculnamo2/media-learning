@@ -7,7 +7,13 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "test:buffers": "node --experimental-strip-types --test tests/bufferModel.test.mjs",
+    "preview": "vite preview",
+    "test:sync": "node --experimental-strip-types --test tests/syncModel.test.mjs",
+    "test:clips": "node --experimental-strip-types --test tests/clipModel.test.mjs",
+    "test:webcodecs": "node --experimental-strip-types --test tests/bufferModel.test.mjs tests/syncModel.test.mjs tests/clipModel.test.mjs tests/webcodecsExamples.test.mjs",
+    "check:webcodecs-snippets": "node --experimental-strip-types tests/webcodecsSnippets.mjs",
+    "test:webcodecs-browser": "node tests/webcodecs.browser.mjs"
   },
   "dependencies": {
     "d3": "^7.9.0",

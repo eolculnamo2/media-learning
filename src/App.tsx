@@ -6,6 +6,7 @@ import { DesktopPlayerPage } from './DesktopPlayerPage'
 import { ForceGraph } from './ForceGraph'
 import { edges, nodes, type Node } from './graphData'
 import { CodecsPage } from './pages/CodecsPage'
+import { WebCodecsPage } from './pages/WebCodecsPage'
 import {
   AbrLadderPage,
   BoxTreePage,
@@ -93,6 +94,7 @@ function Layout({ children }: { children: ReactNode }) {
           <Link to="/browser-dash-mse">Browser DASH/MSE</Link>
           <Link to="/desktop-player">Desktop player</Link>
           <Link to="/codecs">Codecs</Link>
+          <Link to="/webcodecs">WebCodecs</Link>
         </div>
       </nav>
       {children}
@@ -170,6 +172,7 @@ function App() {
         <Route path="/browser-dash-mse" element={<BrowserDashMsePage />} />
         <Route path="/desktop-player" element={<DesktopPlayerPage />} />
         <Route path="/codecs" element={<CodecsPage />} />
+        <Route path="/webcodecs" element={<WebCodecsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
