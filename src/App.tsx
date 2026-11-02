@@ -7,6 +7,7 @@ import { ForceGraph } from './ForceGraph'
 import { edges, nodes, type Node } from './graphData'
 import { CodecsPage } from './pages/CodecsPage'
 import { WebCodecsPage } from './pages/WebCodecsPage'
+import { ManifestExplorerPage } from './pages/ManifestExplorerPage'
 import {
   AbrLadderPage,
   BoxTreePage,
@@ -95,6 +96,7 @@ function Layout({ children }: { children: ReactNode }) {
           <Link to="/desktop-player">Desktop player</Link>
           <Link to="/codecs">Codecs</Link>
           <Link to="/webcodecs">WebCodecs</Link>
+          <Link to="/manifests">DASH & HLS manifests</Link>
         </div>
       </nav>
       {children}
@@ -173,6 +175,7 @@ function App() {
         <Route path="/desktop-player" element={<DesktopPlayerPage />} />
         <Route path="/codecs" element={<CodecsPage />} />
         <Route path="/webcodecs" element={<WebCodecsPage />} />
+        <Route path="/manifests" element={<ManifestExplorerPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
