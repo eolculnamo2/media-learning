@@ -12,6 +12,7 @@
     "test:sync": "node --experimental-strip-types --test tests/syncModel.test.mjs",
     "test:clips": "node --experimental-strip-types --test tests/clipModel.test.mjs",
     "test:manifests": "node --experimental-strip-types --test tests/manifestModel.test.mjs",
+    "test:containers": "node --experimental-strip-types --test tests/containerReference.test.mjs",
     "test:webcodecs": "node --experimental-strip-types --test tests/bufferModel.test.mjs tests/syncModel.test.mjs tests/clipModel.test.mjs tests/webcodecsExamples.test.mjs",
     "check:webcodecs-snippets": "node --experimental-strip-types tests/webcodecsSnippets.mjs",
     "test:webcodecs-browser": "node tests/webcodecs.browser.mjs"

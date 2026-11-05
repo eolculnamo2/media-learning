@@ -8,6 +8,7 @@ import { edges, nodes, type Node } from './graphData'
 import { CodecsPage } from './pages/CodecsPage'
 import { WebCodecsPage } from './pages/WebCodecsPage'
 import { ManifestExplorerPage } from './pages/ManifestExplorerPage'
+import { ContainersPage } from './pages/ContainersPage'
 import {
   AbrLadderPage,
   BoxTreePage,
@@ -97,6 +98,7 @@ function Layout({ children }: { children: ReactNode }) {
           <Link to="/codecs">Codecs</Link>
           <Link to="/webcodecs">WebCodecs</Link>
           <Link to="/manifests">DASH & HLS manifests</Link>
+          <Link to="/containers">Container formats</Link>
         </div>
       </nav>
       {children}
@@ -176,6 +178,7 @@ function App() {
         <Route path="/codecs" element={<CodecsPage />} />
         <Route path="/webcodecs" element={<WebCodecsPage />} />
         <Route path="/manifests" element={<ManifestExplorerPage />} />
+        <Route path="/containers" element={<ContainersPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
