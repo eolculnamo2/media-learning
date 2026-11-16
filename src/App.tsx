@@ -9,6 +9,7 @@ import { CodecsPage } from './pages/CodecsPage'
 import { WebCodecsPage } from './pages/WebCodecsPage'
 import { ManifestExplorerPage } from './pages/ManifestExplorerPage'
 import { ContainersPage } from './pages/ContainersPage'
+import { ColorSciencePage } from './pages/ColorSciencePage'
 import {
   AbrLadderPage,
   BoxTreePage,
@@ -99,6 +100,7 @@ function Layout({ children }: { children: ReactNode }) {
           <Link to="/webcodecs">WebCodecs</Link>
           <Link to="/manifests">DASH & HLS manifests</Link>
           <Link to="/containers">Container formats</Link>
+          <Link to="/color-science">Video color science</Link>
         </div>
       </nav>
       {children}
@@ -179,6 +181,7 @@ function App() {
         <Route path="/webcodecs" element={<WebCodecsPage />} />
         <Route path="/manifests" element={<ManifestExplorerPage />} />
         <Route path="/containers" element={<ContainersPage />} />
+        <Route path="/color-science" element={<ColorSciencePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
