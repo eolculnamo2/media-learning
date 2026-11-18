@@ -71,7 +71,7 @@ function Details({ node, choose }: { node: Node; choose: (path: string) => void 
   const exampleKey = `${node.parentType}.${node.name}`
 
   return <article className="ffx-details" id="ffx-details" tabIndex={-1} aria-label="Selected field documentation">
-    <nav className="ffx-crumbs" aria-label="Field breadcrumb">
+    {node.parentType && <nav className="ffx-crumbs" aria-label="Field breadcrumb">
       {node.path.split('/').map((part, index, parts) => <span key={index}>
         {index > 0 && <span aria-hidden="true"> / </span>}
         {index === parts.length - 1 ? <strong>{part}</strong> :
@@ -82,9 +82,9 @@ function Details({ node, choose }: { node: Node; choose: (path: string) => void 
             }
           }}>{part}</Link>}
       </span>)}
-    </nav>
+    </nav>}
     <div className="ffx-detail-title"><h3>{node.name}</h3><span className={`ffx-badge ffx-${node.kind}`}>{node.kind}</span></div>
-    <CCode code={declaration(node)} />
+    {(node.field || node.constant) && <CCode code={declaration(node)} />}
     {node.field && <dl className="ffx-identity">
       <dt>Path</dt><dd><code>{qualified(node.path)}</code></dd>
       <dt>Parent</dt><dd><code>{owner}</code></dd>
@@ -128,10 +128,26 @@ export function FFmpegStructureExplorer({ path, navigate }: { path: string; navi
   const nodes = useMemo(() => root === defaultStructure ? mainNodes : flatten(rootNode), [root, rootNode])
   const active = nodes.find(node => node.path === path) ?? rootNode
   const [open, setOpen] = useState<Record<string, boolean>>({})
+  const [collapsedFor, setCollapsedFor] = useState('')
   const [filter, setFilter] = useState('')
   const [resultLimit, setResultLimit] = useState(8)
+  const sectionRef = useRef<HTMLElement>(null)
   const outlineRef = useRef<HTMLDivElement>(null)
   const results = useMemo(() => search(root === defaultStructure ? nodes : [...nodes, ...mainNodes], filter), [nodes, root, filter])
+
+  useEffect(() => {
+    const section = sectionRef.current
+    const header = document.querySelector('.top-nav')
+    if (!section || !header) return
+    const update = () => {
+      const stickyHeight = getComputedStyle(header).position === 'sticky' ? header.getBoundingClientRect().height : 0
+      section.style.setProperty('--ffx-nav-offset', `${stickyHeight + 12}px`)
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const container = outlineRef.current
@@ -145,7 +161,23 @@ export function FFmpegStructureExplorer({ path, navigate }: { path: string; navi
   }, [active.path])
 
   function isOpen(node: Node) {
+    if (active.path.startsWith(`${node.path}/`) && collapsedFor !== active.path) return true
     return open[node.path] ?? (node === rootNode || active.path.startsWith(`${node.path}/`))
+  }
+
+  function toggle(node: Node) {
+    const expanded = !isOpen(node)
+    if (!expanded) setCollapsedFor(active.path)
+    setOpen(current => ({ ...current, [node.path]: expanded }))
+  }
+
+  function changeSubtree(node: Node, expanded: boolean) {
+    if (!expanded) setCollapsedFor(active.path)
+    setOpen(current => {
+      const next = expandState(node, expanded, current)
+      if (!expanded && node === rootNode) next[node.path] = true
+      return next
+    })
   }
 
   function choose(nextPath: string, revealDetails = true) {
@@ -165,7 +197,7 @@ export function FFmpegStructureExplorer({ path, navigate }: { path: string; navi
     }
   }
 
-  return <section className="ff-section ffx-section" aria-labelledby="ffx-heading">
+  return <section ref={sectionRef} className="ff-section ffx-section" aria-labelledby="ffx-heading">
     <header className="ffx-heading">
       <div>
         <span className="ffx-version">FFmpeg {release} · Public C API</span>
@@ -201,18 +233,18 @@ export function FFmpegStructureExplorer({ path, navigate }: { path: string; navi
         <div className="ffx-actions">
           <div><strong>Structure tree</strong><small>↗ Pointer or pointed-to array</small></div>
           <div>
-            <button className="ffx-control" type="button" onClick={() => setOpen(current => expandState(rootNode, true, current))}>Expand all</button>
-            <button className="ffx-control" type="button" onClick={() => setOpen(current => ({ ...expandState(rootNode, false, current), [rootNode.path]: true }))}>Collapse all</button>
+            <button className="ffx-control" type="button" onClick={() => changeSubtree(rootNode, true)}>Expand all</button>
+            <button className="ffx-control" type="button" onClick={() => changeSubtree(rootNode, false)}>Collapse all</button>
           </div>
         </div>
         <div className="ffx-outline" ref={outlineRef}>
           <ul><Outline node={rootNode} active={active.path} isOpen={isOpen}
-            toggle={node => setOpen(current => ({ ...current, [node.path]: !isOpen(node) }))} choose={choose} /></ul>
+            toggle={toggle} choose={choose} /></ul>
         </div>
         <div className="ffx-subtree">
           {active.children.length > 0 && active !== rootNode && <>
-            <button className="ffx-control" type="button" onClick={() => setOpen(current => expandState(active, true, current))}>Expand selected subtree</button>
-            <button className="ffx-control" type="button" onClick={() => setOpen(current => expandState(active, false, current))}>Collapse selected subtree</button>
+            <button className="ffx-control" type="button" onClick={() => changeSubtree(active, true)}>Expand selected subtree</button>
+            <button className="ffx-control" type="button" onClick={() => changeSubtree(active, false)}>Collapse selected subtree</button>
           </>}
         </div>
       </aside>

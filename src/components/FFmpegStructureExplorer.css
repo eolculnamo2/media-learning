@@ -9,6 +9,7 @@
 }
 .ffx-section code { background: none; padding: 0; border-radius: 0; }
 .ffx-heading { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 24px; }
+.ffx-heading h2 { scroll-margin-top: var(--ffx-nav-offset, 12px); }
 .ffx-heading p { margin: 0; }
 .ffx-version { color: var(--accent); font: 700 12px var(--mono, monospace); }
 .ffx-heading label, .ffx-search, .ffx-time-row label { display: grid; gap: 6px; color: var(--text-h); font-size: 13px; font-weight: 700; }
@@ -22,7 +23,7 @@
 .ffx-navigation, .ffx-details {
   min-width: 0; border: 1px solid var(--ffx-line); border-radius: 16px; background: var(--bg);
 }
-.ffx-navigation { position: sticky; top: 16px; scroll-margin-top: 12px; }
+.ffx-navigation { position: sticky; top: var(--ffx-nav-offset, 12px); scroll-margin-top: var(--ffx-nav-offset, 12px); }
 .ffx-search { padding: 15px; border-bottom: 1px solid var(--ffx-line); }
 .ffx-results { max-height: 210px; overflow: auto; border-bottom: 1px solid var(--ffx-line); padding: 10px 15px; }
 .ffx-results [role="status"] { font-size: 12px; font-weight: 700; margin-bottom: 5px; }
@@ -72,7 +73,7 @@
 .ffx-node .ffx-union, .ffx-node .ffx-opaque, .ffx-badge.ffx-union, .ffx-badge.ffx-opaque { color: var(--ffx-amber); }
 .ffx-subtree:empty { display: none; }
 .ffx-subtree { padding: 10px 15px; border-top: 1px solid var(--ffx-line); }
-.ffx-details { padding: clamp(16px, 2.8vw, 30px); scroll-margin-top: 12px; }
+.ffx-details { padding: clamp(16px, 2.8vw, 30px); scroll-margin-top: var(--ffx-nav-offset, 12px); }
 .ffx-crumbs { display: flex; flex-wrap: wrap; gap: 4px 7px; font: 12px var(--mono, monospace); overflow-wrap: anywhere; }
 .ffx-crumbs a { text-decoration: none; }
 .ffx-crumbs strong { color: var(--text-h); }
@@ -139,6 +140,7 @@
   .ffx-section { color-scheme: dark; }
 }
 @media (max-width: 780px) {
+  .app-shell:has(.ffx-section) > .top-nav { position: static; }
   .ffx-workspace { grid-template-columns: minmax(0, 1fr); }
   .ffx-navigation { position: static; }
   .ffx-return { display: inline-block; margin-top: 18px; }
