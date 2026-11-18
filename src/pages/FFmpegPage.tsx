@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router'
+import { lazy, Suspense, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router'
 import { line, scaleLinear } from 'd3'
 import { annotateCommand, illustrativeSeekPoint, options, recipes, scenarios, stages, type Recipe, type Scenario, type StageId } from '../data/ffmpeg'
 import './FFmpegPage.css'
 
-type Tab = 'Learn' | 'Commands' | 'Options' | 'Lab'
+const FFmpegStructureExplorer = lazy(() => import('../components/FFmpegStructureExplorer')
+  .then(({ FFmpegStructureExplorer }) => ({ default: FFmpegStructureExplorer })))
+
+type Tab = 'Learn' | 'Commands' | 'Options' | 'Lab' | 'Data Structures'
 const docs = { cli:'https://ffmpeg.org/ffmpeg.html', filters:'https://ffmpeg.org/ffmpeg-filters.html', codecs:'https://ffmpeg.org/ffmpeg-codecs.html', formats:'https://ffmpeg.org/ffmpeg-formats.html', probe:'https://ffmpeg.org/ffprobe.html', api:'https://ffmpeg.org/doxygen/trunk/' }
 const allStages: StageId[] = ['input','demux','packet','decode','frame','filter','encode','mux','output']
 const color = (id:StageId) => id === 'packet' ? '#d97706' : id === 'frame' ? '#0d9488' : id === 'decode' || id === 'encode' ? '#7c3aed' : id === 'filter' ? '#e11d48' : '#2563eb'
@@ -85,4 +88,28 @@ function BitrateLab(){const [mode,setMode]=useState<'crf'|'abr'|'constrained'>('
 
 function Lab(){return <section className="ff-section"><div className="ff-section-head"><div><span className="ff-kicker">INTERACTIVE LAB</span><h2>Change a parameter. See the consequence.</h2><p>Deterministic teaching models for seeking, filters, and rate control.</p></div></div><div className="ff-labs"><SeekLab/><FilterLab/><BitrateLab/></div></section>}
 
-export function FFmpegPage(){const [tab,setTab]=useState<Tab>('Learn'),[option,setOption]=useState('-ss'),[recipeQuery,setRecipeQuery]=useState('');return <article className="ff-page"><header className="ff-hero"><div><span className="ff-kicker">MEDIA ENGINEERING / INTERACTIVE REFERENCE</span><h1>See what an FFmpeg command <em>does.</em></h1><p>Follow packets through demuxers, frames through filters, and encoded streams into outputs. Then use the command library and option reference to put that model to work.</p><div className="ff-hero-links"><a href={docs.cli} target="_blank" rel="noreferrer">FFmpeg documentation ↗</a><a href={docs.api} target="_blank" rel="noreferrer">libav API ↗</a></div></div><div className="ff-hero-art" aria-hidden="true"><div>INPUT <b>→</b> DEMUX</div><div><span>▰ PACKETS</span><b>→</b> DECODE</div><div><span>▣ FRAMES</span><b>→</b> FILTER</div><div>ENCODE <b>→</b> MUX <b>→</b> OUTPUT</div></div></header><nav className="ff-tabs" aria-label="FFmpeg sections">{(['Learn','Commands','Options','Lab'] as Tab[]).map((t,i)=><button key={t} className={tab===t?'active':''} onClick={()=>{if(t==='Commands')setRecipeQuery('');setTab(t)}} aria-current={tab===t?'page':undefined}><span>0{i+1}</span>{t}</button>)}</nav><main>{tab==='Learn'?<Learn setTab={setTab} setOption={setOption}/>:tab==='Commands'?<Commands setTab={setTab} setOption={setOption} initialQuery={recipeQuery}/>:tab==='Options'?<Options selection={option} setSelection={setOption} openRecipe={title=>{setRecipeQuery(title);setTab('Commands')}}/>:<Lab/>}</main><footer className="ff-footer"><strong>Keep the model honest.</strong> CLI behavior depends on stream selection, codecs, containers, timestamps, and build options. See the official <a href={docs.cli} target="_blank" rel="noreferrer">CLI</a>, <a href={docs.filters} target="_blank" rel="noreferrer">filters</a>, <a href={docs.codecs} target="_blank" rel="noreferrer">codecs</a>, <a href={docs.formats} target="_blank" rel="noreferrer">formats</a>, and <a href={docs.probe} target="_blank" rel="noreferrer">ffprobe</a> references.</footer></article>}
+export function FFmpegPage(){const [localTab,setLocalTab]=useState<Tab>('Learn'),[option,setOption]=useState('-ss'),[recipeQuery,setRecipeQuery]=useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const structure = searchParams.get('structure')
+  const tab = structure !== null ? 'Data Structures' : localTab
+  function openStructure(path: string) {
+    if (structure === path) return
+    setSearchParams(current => {
+      const next = new URLSearchParams(current)
+      next.set('structure', path)
+      return next
+    }, { preventScrollReset: true })
+  }
+  function setTab(nextTab: Tab) {
+    if (nextTab === 'Data Structures') {
+      if (structure === null) openStructure('AVStream')
+      return
+    }
+    setLocalTab(nextTab)
+    if (structure !== null) setSearchParams(current => {
+      const next = new URLSearchParams(current)
+      next.delete('structure')
+      return next
+    }, { preventScrollReset: true })
+  }
+  return <article className="ff-page"><header className="ff-hero"><div><span className="ff-kicker">MEDIA ENGINEERING / INTERACTIVE REFERENCE</span><h1>See what an FFmpeg command <em>does.</em></h1><p>Follow packets through demuxers, frames through filters, and encoded streams into outputs. Then use the command library and option reference to put that model to work.</p><div className="ff-hero-links"><a href={docs.cli} target="_blank" rel="noreferrer">FFmpeg documentation ↗</a><a href={docs.api} target="_blank" rel="noreferrer">libav API ↗</a></div></div><div className="ff-hero-art" aria-hidden="true"><div>INPUT <b>→</b> DEMUX</div><div><span>▰ PACKETS</span><b>→</b> DECODE</div><div><span>▣ FRAMES</span><b>→</b> FILTER</div><div>ENCODE <b>→</b> MUX <b>→</b> OUTPUT</div></div></header><nav className="ff-tabs" aria-label="FFmpeg sections">{(['Learn','Commands','Options','Lab','Data Structures'] as Tab[]).map((t,i)=><button key={t} className={tab===t?'active':''} onClick={()=>{if(t==='Commands')setRecipeQuery('');setTab(t)}} aria-current={tab===t?'page':undefined}><span>0{i+1}</span>{t}</button>)}</nav><main>{tab==='Learn'?<Learn setTab={setTab} setOption={setOption}/>:tab==='Commands'?<Commands setTab={setTab} setOption={setOption} initialQuery={recipeQuery}/>:tab==='Options'?<Options selection={option} setSelection={setOption} openRecipe={title=>{setRecipeQuery(title);setTab('Commands')}}/>:tab==='Data Structures'?<Suspense fallback={<p role="status">Loading data structures…</p>}><FFmpegStructureExplorer path={structure ?? 'AVStream'} navigate={openStructure}/></Suspense>:<Lab/>}</main><footer className="ff-footer"><strong>Keep the model honest.</strong> CLI behavior depends on stream selection, codecs, containers, timestamps, and build options. See the official <a href={docs.cli} target="_blank" rel="noreferrer">CLI</a>, <a href={docs.filters} target="_blank" rel="noreferrer">filters</a>, <a href={docs.codecs} target="_blank" rel="noreferrer">codecs</a>, <a href={docs.formats} target="_blank" rel="noreferrer">formats</a>, and <a href={docs.probe} target="_blank" rel="noreferrer">ffprobe</a> references.</footer></article>}
